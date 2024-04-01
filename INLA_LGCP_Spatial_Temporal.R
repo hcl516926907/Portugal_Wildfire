@@ -49,7 +49,7 @@ book.mesh.dual <- function(mesh) {
   else stop("It only works for R2!")
 }
 
-load(file.path(dir.data,"finaldata_urbanfire.RData"))
+load(file.path(dir.data, "burn_area","finaldata_urbanfire.RData"))
 
 # time.sp <- as.character(deframe(data[,'open']))>'2017-01-01'
 # data.flt <- data[time.sp,c("lon", "lat",'cent.lon','cent.lat')]
@@ -89,9 +89,9 @@ loc.d <- cbind(st_coordinates(map_mainland)[, 1], st_coordinates(map_mainland)[,
 library(terra)
 
 # raster grid covering map
-grid <- terra::rast(map_mainland, nrows = 100, ncols = 60)
+grid.pred <- terra::rast(map_mainland, nrows = 100, ncols = 60)
 # coordinates of all cells
-xy <- terra::xyFromCell(grid, 1:ncell(grid))
+xy <- terra::xyFromCell(grid.pred, 1:ncell(grid.pred))
 
 dp <- st_as_sf(as.data.frame(xy), coords = c("x", "y"),
                crs = st_crs(map))
@@ -116,9 +116,9 @@ coop <- st_coordinates(dp)
 
 
 
-inner.length <- 8
-outer.length <- 20
-cutoff <- 4
+# inner.length <- 8
+# outer.length <- 20
+# cutoff <- 4
 
 # inner.length <- 16
 # outer.length <- 40
@@ -127,6 +127,10 @@ cutoff <- 4
 # inner.length <- 20
 # outer.length <- 50
 # cutoff <- 6
+
+inner.length <- 40
+outer.length <- 70
+cutoff <- 15
 
 # plot points
 # mesh <- inla.mesh.2d(loc.domain = loc.data, boundary=sp_poly, max.edge=c(inner.length,outer.length), cutoff=0.1)
@@ -140,22 +144,15 @@ nv <- mesh$n
 # Number of points in the data
 n <- nrow(coo)
 
-r <- 9
+r <- 50
 p1 <- 0.1
 sigma <- 8
 p2 <- 0.1
-# for 2018-01-01, priors are 5000 0.05, 5, 0.05
-spde <- inla.spde2.pcmatern(mesh = mesh,
-                            # PC-prior on range: P(practic.range < 0.05) = 0.01
-                            prior.range = c(r, p1),
-                            # PC-prior on sigma: P(sigma > 1) = 0.01
-                            # n=725, 2022-12-01, sigma= 5-10, 0.05
-                            # n=6774 2022-01-01, 
-                            prior.sigma = c(sigma, p2)) 
 
-# A.global <- inla.spde.make.A(mesh = mesh, loc = coords)
-# s.index <- inla.spde.make.index(name = "spatial.field",
-#                                 n.spde = spde$n.spde)
+spde <- inla.spde2.pcmatern(mesh = mesh,
+                            prior.range = c(r, p1),
+
+                            prior.sigma = c(sigma, p2)) 
 
 
 
@@ -190,38 +187,58 @@ plot(mesh)
 points(mesh$loc[which(w > 0), 1:2], col = "black", pch = 20, cex=0.2)
 points(mesh$loc[which(w == 0), 1:2], col = "red", pch = 20, cex=0.2)
 
-y.pp = rep(0:1, c(nv, nrow(coo)))
+k <- 9
+mesh.t <- inla.mesh.1d(2012:2020)
+st.vol <- rep(w, k) * rep(diag(inla.mesh.fem(mesh.t)$c0), nv)
+
+y.pp = rep(0:1, c(k*nv, n))
 # y.pp = c(rep(0,nv), data.cox$n)
-e.pp = c(w, rep(0, n))
+e.pp = c(st.vol, rep(0, n))
 
 # Projection matrix for the integration points (mesh vertices)
-A.int <- Diagonal(nv, rep(1, nv))
+# A.int <- Diagonal(nv, rep(1, nv))
+A.int <- Diagonal(k*nv, rep(1, nv))
 # Projection matrix for observed points (event locations)
-A.y <- inla.spde.make.A(mesh = mesh, loc = coo)
+# A.y <- inla.spde.make.A(mesh = mesh, loc = coo)
+A.y <- inla.spde.make.A(mesh = mesh, loc = coo,
+                        n.group = length(mesh.t$n),
+                        group= data.new$year,group.mesh = mesh.t)
+print(dim(A.y))
+
+idx <- inla.spde.make.index('s', spde$n.spde, n.group = mesh.t$n)
+
 # Projection matrix for mesh vertices and event locations
 A.pp <- rbind(A.int, A.y)
-Ap.pp <- inla.spde.make.A(mesh = mesh, loc = coop)
+Ap.pp <- inla.spde.make.A(mesh = mesh, loc = do.call("rbind", rep(list(coop), k)),
+                          n.group = length(mesh.t$n),
+                          group= rep(2012:2020, each=nrow(coop)),
+                          group.mesh = mesh.t)
 
 # stack for estimation
 stk.e.pp <- inla.stack(tag = "est.pp",
                        data = list(y = y.pp, e = e.pp), 
-                       A = list(1, A.pp),
-                       effects = list(list(b0 = rep(1, nv + n)), list(s = 1:nv)))
+                       A = list( A.pp,1),
+                       effects = list(idx, list(b0 = rep(1, k*nv + n))))
 
 
 # stack for prediction stk.p
 stk.p.pp <- inla.stack(tag = "pred.pp",
-                       data = list(y = rep(NA, nrow(coop)), e = rep(0, nrow(coop))),
-                       A = list(1, Ap.pp),
-                       effects = list(data.frame(b0 = rep(1, nrow(coop))),
-                                      list(s = 1:nv)))
+                       data = list(y = rep(NA, nrow(coop)*k), e = rep(0, nrow(coop)*k)),
+                       A = list( Ap.pp,1),
+                       effects = list(idx, data.frame(b0 = rep(1, nrow(coop)*k)))
+                       )
+                                      
 
 stk.full.pp <- inla.stack(stk.e.pp, stk.p.pp)
 
-formula <- y ~ -1 + b0 + f(s, model = spde)
+#P(cor > 0.7) =0.7
+pcrho <- list(prior = 'pc.cor1', param = c(0.7, 0.7))
+formula <- y ~ 0 + b0 + f(s, model = spde, group = s.group,
+                          control.group = list(model = 'ar1',
+                                               hyper = list(rho = pcrho)))
 
 t1 <- Sys.time()
-res <- inla(formula,  family = 'poisson',
+res.inla <- inla(formula,  family = 'poisson',
             data = inla.stack.data(stk.full.pp),
             control.predictor = list(compute = TRUE, link = 1,
                                      A = inla.stack.A(stk.full.pp)),
@@ -231,36 +248,82 @@ res <- inla(formula,  family = 'poisson',
 t2 <- Sys.time()
 print(t2-t1)
 
-# filename <- paste('res_frac0.4',inner.length,outer.length, r,p1,sigma,p2,'.RData',sep='_')
-# save(stk.full.pp,res, file=file.path(dir.out, filename))
+# range is changed when using different mesh?
 
-# 
-# load(file.path(dir.out, 'res_frac0.4_6000_20000_4000_0.05_8_0.05_.RData'))
-# 
+
+res <- res.inla
+r0 <- diff(range(loc.d[, 1])) / diff(range(loc.d[, 2]))
+prj <- inla.mesh.projector(mesh, xlim = range(loc.d[, 1]),
+                           ylim = range(loc.d[, 2]), dims = c(100, 100 / r0)) 
+ov <- over(SpatialPoints(prj$lattice$loc), domainSP)
+m.prj <- lapply(1:k, function(j) {
+  r <- inla.mesh.project(prj,
+                         res$summary.ran$s$mean[1:nv + (j - 1) * nv])
+  r[is.na(ov)] <- NA
+  return(r) 
+})
+
 index <- inla.stack.index(stk.full.pp, tag = "pred.pp")$data
 pred_mean <- res$summary.fitted.values[index, "mean"]
 pred_ll <- res$summary.fitted.values[index, "0.025quant"]
 pred_ul <- res$summary.fitted.values[index, "0.975quant"]
 
 
+# 
+# grid$mean <- NA
+# grid$ll <- NA
+# grid$ul <- NA
+# 
+# grid$mean[indicespointswithin] <- pred_mean
+# grid$ll[indicespointswithin] <- pred_ll
+# grid$ul[indicespointswithin] <- pred_ul
 
-grid$mean <- NA
-grid$ll <- NA
-grid$ul <- NA
-
-grid$mean[indicespointswithin] <- pred_mean
-grid$ll[indicespointswithin] <- pred_ll
-grid$ul[indicespointswithin] <- pred_ul
+grid.t <- list()
+for (i in 1:k){
+  grid.t[[i]] <- grid.pred
+  grid.t[[i]]$mean <- NA
+  grid.t[[i]]$ll <- NA
+  grid.t[[i]]$ul <- NA
+  
+  pred.idx <- which(rep(2012:2020, each=nrow(coop)) == (i+2011))
+  grid.t[[i]]$mean[indicespointswithin] <- pred_mean[pred.idx]
+  grid.t[[i]]$ll[indicespointswithin] <- pred_ll[pred.idx]
+  grid.t[[i]]$ul[indicespointswithin] <- pred_ul[pred.idx]
+  
+}
 
 
 library(rasterVis)
-levelplot(raster::brick(grid), layout = c(3, 1),
+levelplot(raster::brick(grid.t[[1]]), layout = c(3, 1),
           names.attr = c("Mean", "2.5 percentile", "97.5 percentile"),par.settings= BuRdTheme())
-# 
-# samples <- inla.posterior.sample(200, res)
 
+r_df <- as.data.frame(grid.t[[1]], xy=TRUE)
 
+# Use ggplot
+ggplot(data = r_df, aes(x = x, y = y, fill = mean)) +
+  geom_tile() +
+  scale_fill_viridis_c() +  # Using viridis color scale
+  coord_fixed() +  # Keep aspect ratio
+  labs(fill = "Value", x = "Longitude", y = "Latitude") +
+  theme_minimal()
 
+for (i in 1:k){
+  r_df <- as.data.frame(grid.t[[i]], xy=TRUE)
+  
+  # Use ggplot
+  assign(paste('p',i, sep=''),  ggplot(data = r_df, aes(x = x, y = y, fill = mean)) +
+    geom_tile() +
+    scale_fill_viridis_c() +  # Using viridis color scale
+    coord_fixed() +  # Keep aspect ratio
+    labs(fill = "Value", x = "Longitude", y = "Latitude") +
+    ggtitle(paste('Year', i+2011))+
+  theme_minimal() )
+
+}
+library(gridExtra)
+grid.arrange(p1,p2,p3,
+             p4,p5,p6,
+             p7,p8,p9, nrow = 3)
 # library(fields)
 # local.plot.field = function(field, mesh, xlim=c(-15,-4), ylim=c(35,43), ...){
 #   stopifnot(length(field) == mesh$n)
