@@ -9,6 +9,7 @@ library(ggplot2)
 library(rgdal)
 library(sf)
 library(fmesher)
+library(dplyr)
 
 # bru_safe_sp(force = TRUE)
 load(file.path(dir.data, "burn_area","finaldata_urbanfire.RData"))
@@ -16,7 +17,7 @@ load(file.path(dir.data, "burn_area","finaldata_urbanfire.RData"))
 data.new$year.idx <- data.new$year -2011
 loc.data.utm <- st_as_sf(data.new, coords=c('x_utm_new','y_utm_new'), crs='+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' )
 
-# coords <-  st_coordinates(st_as_sf(loc.data.utm))
+
 coords <- SpatialPointsDataFrame(data.new, coords=data.new[,c('x_utm_new','y_utm_new')], 
                                  proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
 
@@ -119,89 +120,225 @@ pl1 <- ggplot() +
   facet_wrap(~year.idx) +
   coord_sf()
 pl1
-# 
-# 
-# prepare_residual_calculations <- function(samplers, domain, observations,time) {
-#   # Calculate the integration weights for A_integrate
-#   ips <- fm_int(domain = list(coordinates = domain, year.idx=time), samplers = samplers)
-#   
-#   # Set-up the A_integrate matrix
-#   # A_integrate has as many rows as polygons in the samplers,
-#   # as many columns as mesh points
-#   A_integrate <- inla.spde.make.A(
-#     mesh = domain, ips, weights = ips$weight,
-#     block = ips$.block, block.rescale = "none"
-#   )
-#   
-#   
-#   # Set-up the A_sum matrix
-#   # A_sum has as many rows as polygons in the samplers,
-#   # as many columns as observed points
-#   # each row has 1s for the points in the corresponding polygon
-#   idx <- sf::st_within(sf::st_as_sf(observations), sf::st_as_sf(samplers), sparse = TRUE)
-#   A_sum <- sparseMatrix(
-#     i = unlist(idx),
-#     j = rep(
-#       seq_len(nrow(observations)),
-#       vapply(idx, length, 1L)
-#     ),
-#     x = rep(1, length(unlist(idx))),
-#     dims = c(nrow(samplers), nrow(observations))
-#   )
-#   
-#   
-#   # Setting up the data frame for calculating residuals
-#   observations$obs <- TRUE
-#   df <- SpatialPointsDataFrame(
-#     coords = rbind(domain$loc[, 1:2], coordinates(observations)),
-#     data = bind_rows(data.frame(obs = rep(FALSE, domain$n)), observations@data),
-#     proj4string = fm_CRS(domain)
-#   )
-#   
-#   # Return A-sum, A_integrate and the data frame for predicting the residuals
-#   list(A_sum = A_sum, A_integrate = A_integrate, df = df)
-# }
-# 
-# 
-# 
-# 
-# residual_df <- function(model, df, expr, A_sum, A_integrate) {
-#   # Compute residuals
-#   res <- predict(
-#     object = model,
-#     newdata = df,
-#     ~ {
-#       lambda <- eval(expr)
-#       h1 <- lambda * 0 + 1
-#       h2 <- 1 / lambda
-#       h3 <- 1 / sqrt(lambda)
-#       data.frame(
-#         Scaling_Residuals =
-#           as.vector(A_sum %*% h1[obs]) -
-#           as.vector(A_integrate %*% (h1 * lambda)[!obs]),
-#         Inverse_Residuals =
-#           as.vector(A_sum %*% h2[obs]) -
-#           as.vector(A_integrate %*% (h2 * lambda)[!obs]),
-#         Pearson_Residuals =
-#           as.vector(A_sum %*% h3[obs]) -
-#           as.vector(A_integrate %*% (h3 * lambda)[!obs])
-#       )
-#     },
-#     used = bru_used(expr)
-#   )
-#   
-#   # Label the three types of residuals
-#   res$Scaling_Residuals$Type <- "Scaling Residuals"
-#   res$Inverse_Residuals$Type <- "Inverse Residuals"
-#   res$Pearson_Residuals$Type <- "Pearson Residuals"
-#   do.call(rbind, res)
-# }
-# 
-# 
-# As <- prepare_residual_calculations(
-#   samplers = domainSP, domain = mesh,
-#   observations = coords
-# )
+
+
+prepare_residual_calculations <- function(samplers, domain, observations, year) {
+  observations <- observations[observations$year.idx==year,]
+  
+  # Calculate the integration weights for A_integrate
+  ips <- fm_int(domain = domain, samplers = samplers)
+  
+  # Set-up the A_integrate matrix
+  # A_integrate has as many rows as polygons in the samplers,
+  # as many columns as mesh points
+  A_integrate <- inla.spde.make.A(
+    mesh = domain, ips, weights = ips$weight,
+    block = ips$.block, block.rescale = "none"
+  )
+  
+  
+  # Set-up the A_sum matrix
+  # A_sum has as many rows as polygons in the samplers,
+  # as many columns as observed points
+  # each row has 1s for the points in the corresponding polygon
+  idx <- sf::st_within(sf::st_as_sf(observations), sf::st_as_sf(samplers), sparse = TRUE)
+  A_sum <- sparseMatrix(
+    i = unlist(idx),
+    j = rep(
+      seq_len(nrow(observations)),
+      vapply(idx, length, 1L)
+    ),
+    x = rep(1, length(unlist(idx))),
+    dims = c(nrow(samplers), nrow(observations))
+  )
+  
+  
+  
+  # Setting up the data frame for calculating residuals
+  observations$obs <- TRUE
+  df <- SpatialPointsDataFrame(
+    coords = rbind(domain$loc[, 1:2], coordinates(observations)),
+    data = bind_rows(data.frame(obs = rep(FALSE, domain$n), year.idx=year), observations@data),
+    proj4string = fm_CRS(domain)
+  )
+  
+  # Return A-sum, A_integrate and the data frame for predicting the residuals
+  list(A_sum = A_sum, A_integrate = A_integrate, df = df)
+}
+
+partition <- function(samplers, resolution = NULL, nrows = NULL, ncols = NULL) {
+  # Create a grid for the given boundary
+  if (is.null(resolution)) {
+    grid <- rast(terra::ext(samplers),
+                 crs = proj4string(samplers),
+                 nrows = nrows, ncols = ncols
+    )
+  }
+  
+  if (is.null(c(nrows, ncols))) {
+    grid <- rast(terra::ext(samplers),
+                 crs = proj4string(samplers),
+                 resolution = resolution
+    )
+  }
+  
+  gridPolygon <- terra::as.polygons(grid)
+  
+  # Extract the boundary with subpolygons only
+  sf::as_Spatial(sf::st_as_sf(terra::intersect(gridPolygon, terra::vect(samplers))))
+}
+
+
+
+
+residual_df <- function(model, df, expr, A_sum, A_integrate, year) {
+  # Compute residuals
+  res <- predict(
+    object = model,
+    newdata = df,
+    ~ {
+      lambda <- eval(expr)
+      h1 <- lambda * 0 + 1
+      h2 <- 1 / lambda
+      h3 <- 1 / sqrt(lambda)
+      data.frame(
+        Scaling_Residuals =
+          as.vector(A_sum %*% h1[obs]) -
+          as.vector(A_integrate %*% (h1 * lambda)[!obs]),
+        Inverse_Residuals =
+          as.vector(A_sum %*% h2[obs]) -
+          as.vector(A_integrate %*% (h2 * lambda)[!obs]),
+        Pearson_Residuals =
+          as.vector(A_sum %*% h3[obs]) -
+          as.vector(A_integrate %*% (h3 * lambda)[!obs])
+      )
+    },
+    used = bru_used(expr)
+  )
+
+  # Label the three types of residuals
+  res$Scaling_Residuals$Type <- "Scaling Residuals"
+  res$Inverse_Residuals$Type <- "Inverse Residuals"
+  res$Pearson_Residuals$Type <- "Pearson Residuals"
+  do.call(rbind, res)
+}
+
+
+B <- SpatialPolygonsDataFrame(domainSP, data.frame('weight'=1), match.ID = F) 
+
+B1 <- partition(samplers = B, nrows = 20, ncols = 10)
+plot(B1, main = "Grid partitions of B")
+
+residual_df_temproal <- function(year, samplers, domain, observations, expr){
+  As <- prepare_residual_calculations(
+    samplers = samplers, domain = domain,
+    observations = observations, year=year
+  )
+  
+  res <- residual_df(
+    fit, As$df, expr,
+    As$A_sum, As$A_integrate, year=year
+  )
+  res$year.idx <- year
+  return(res)
+}
+
+
+
+res <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B1, domain=mesh, observations=coords,
+                                                        expr=expression(exp(mySmooth + Intercept))))
+
+set_csc <- function(residuals, col_theme) {
+  # Store data for the colour scale of the plots for each type of residual
+  cscrange <- data.frame(
+    residuals %>%
+      group_by(Type) %>%
+      summarise(maxabs = max(abs(mean)))
+  )
+  
+  # Set the colour scale for all three types of residuals
+  scaling_csc <-
+    scale_fill_gradientn(
+      colours = brewer.pal(9, col_theme[1]),
+      name = "Scaling Residual",
+      limits =
+        cscrange[cscrange$Type == "Scaling Residuals", 2] *
+        c(-1, 1)
+    )
+  
+  inverse_csc <-
+    scale_fill_gradientn(
+      colours = brewer.pal(9, col_theme[2]),
+      name = "Inverse Residual",
+      limits =
+        cscrange[cscrange$Type == "Inverse Residuals", 2] *
+        c(-1, 1)
+    )
+  
+  pearson_csc <-
+    scale_fill_gradientn(
+      colours = brewer.pal(9, col_theme[3]),
+      name = "Pearson Residual",
+      limits =
+        cscrange[cscrange$Type == "Pearson Residuals", 2] *
+        c(-1, 1)
+    )
+  
+  list("Scaling" = scaling_csc, "Inverse" = inverse_csc, "Pearson" = pearson_csc)
+}
+
+csc <- set_csc(res, rep("RdBu", 3))
+model_name <- 'spatial_temporal'
+samplers.all <-  fm_cprod(B1, data.frame(year.idx = seq_len(9)))
+
+residual_plot_temporal <- function(samplers.all, residuals, csc, model_name) {
+  # Initialise the scaling residuals plot
+  samplers.all$Residual <- res %>%
+    filter(Type == "Scaling Residuals") %>%
+    pull(mean)
+  scaling <- ggplot() +
+    gg(samplers.all, aes(fill = Residual), alpha = 1, colour = NA) +
+    csc["Scaling"] +
+    theme(legend.position = "bottom") +
+    facet_wrap(~year.idx) +
+    labs(subtitle = paste(model_name, "Scaling"))
+  
+  # Initialise the inverse residuals plot
+  samplers.all$Residual <- residuals %>%
+    filter(Type == "Inverse Residuals") %>%
+    pull(mean)
+  inverse <- ggplot() +
+    gg(samplers.all, aes(fill = Residual), alpha = 1, colour = NA) +
+    csc["Inverse"] +
+    theme(legend.position = "bottom") +
+    facet_wrap(~year.idx) +
+    labs(subtitle = paste(model_name, "Inverse"))
+  
+  # Initialise the Pearson residuals plot
+  samplers.all$Residual <- residuals %>%
+    filter(Type == "Pearson Residuals") %>%
+    pull(mean)
+  pearson <- ggplot() +
+    gg(samplers.all, aes(fill = Residual), alpha = 1, colour = NA) +
+    csc["Pearson"] +
+    theme(legend.position = "bottom") +
+    facet_wrap(~year.idx) +
+    labs(subtitle = paste(model_name, "Pearson"))
+  
+  # Return the three plots in a list
+  list(
+    Scaling = scaling, Inverse = inverse,
+    Pearson = pearson
+  )
+  
+}
+
+
+
+
+fit_csc <- set_csc(res, rep("RdBu", 3))
+# Store plots
+plotB1 <- residual_plot_temporal(samplers.all, res, fit_csc, "SPDE Model")
 
 
 
