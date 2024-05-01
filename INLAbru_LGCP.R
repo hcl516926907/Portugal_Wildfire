@@ -17,7 +17,10 @@ library(raster)
 library(rgdal)
 
 # bru_safe_sp(force = TRUE)
-load(file.path(dir.data, "burn_area","finaldata_urbanfire.RData"))
+load(file.path(dir.data, "burn_area","finaldata_ruralfire_fwi.RData"))
+load(file.path(dir.data, "burn_area","weather_covariates.RData"))
+data.new$month <- as.integer(format(data.new$open,format='%m'))
+data.new <- data.new[data.new$year==2020 & data.new$month==9,]
 
 data.new$year.idx <- data.new$year -2011
 loc.data.utm <- st_as_sf(data.new, coords=c('x_utm_new','y_utm_new'), crs='+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' )
@@ -39,19 +42,28 @@ ggplot() + geom_sf(data = map_mainland) +
 
 loc.d <- cbind(st_coordinates(map_mainland)[, 1], st_coordinates(map_mainland)[, 2])
 
-# inner.length <- 20
-# outer.length <- 50
-# cutoff <- 6
 
 inner.length <- 40
 outer.length <- 70
 cutoff <- 15
+
 
 mesh <- inla.mesh.2d(loc.domain = loc.d, max.edge=c(inner.length,outer.length), cutoff=cutoff,
                      crs=projutm)
 mesh$n
 plot(mesh)
 # points(coords, col = 4, pch = 19, cex=0.2)
+
+inner.length <- 20
+outer.length <- 50
+cutoff <- 6
+
+mesh2 <- fm_mesh_2d_inla(loc.domain = loc.d,
+                      max.edge=c(inner.length,outer.length),
+                      cutoff=cutoff,
+                     crs=projutm)
+mesh2$n
+plot(mesh2)
 
 domain.polys <- Polygons(list(Polygon(loc.d)), '0')
 domainSP <- SpatialPolygons(list(domain.polys),proj4string=CRS(projutm))
@@ -62,16 +74,34 @@ nv <- mesh$n
 
 
 
-r <- 50
-p1 <- 0.1
-sigma <- 8
-p2 <- 0.1
+# r <- 50
+# p1 <- 0.1
+# sigma <- 8
+# p2 <- 0.1
+
+r <- 100
+p1 <- 0.01
+sigma <- 2
+p2 <- 0.01
 
 spde <- inla.spde2.pcmatern(mesh = mesh,
                             # PC-prior on range: P(practic.range < r) = p1
                             prior.range = c(r, p1),
                             # PC-prior on sigma: P(sigma > sigma) = p2
                             prior.sigma = c(sigma, p2))
+
+spde2 <- inla.spde2.pcmatern(mesh = mesh2,
+                            # PC-prior on range: P(practic.range < r) = p1
+                            prior.range = c(r, p1),
+                            # PC-prior on sigma: P(sigma > sigma) = p2
+                            prior.sigma = c(sigma, p2))
+
+
+mesh1D.LVegCov <- fm_mesh_1d(seq(0,1,by=0.05), boundary = "free")
+spde1D.LVegCov <- inla.spde2.pcmatern(mesh1D.LVegCov,constr = TRUE,
+                                   prior.range = c(0.001, 0.01),
+                                   prior.sigma = c(0.02, 0.01)
+)
 
 
 
@@ -85,37 +115,278 @@ spde <- inla.spde2.pcmatern(mesh = mesh,
 # t2 <-  Sys.time()
 # print(t2-t1)
 
-cmp <- coordinates  ~  Intercept(1) +
+cmp1 <- coordinates  ~  Intercept(1) +
   mySmooth(coordinates , model = spde)
-
 t1 <-  Sys.time()
-fit <- lgcp(cmp, data=coords, samplers = domainSP,
+fit1 <- lgcp(cmp1, data=coords, samplers = domainSP,
             domain = list(coordinates  = mesh),
             options=list(verbose=TRUE))
 t2 <-  Sys.time()
 print(t2-t1)
 
 
-pred<- predict(
-  fit,
-  fm_pixels(mesh, mask = domainSP, format = "sp"),
+temproal_spdf_LVegTyp <- function(time){
+  m <- as.integer(time)
+  # average over the time.idx
+  spdf <- SpatialPixelsDataFrame(points = grid_pixels,
+                                 data = data.frame(var=as.factor(LVegTyp.month[,,m]),
+                                                   time=time))
+  proj4string(spdf) <- CRS("EPSG:4326")
+  return(spdf)
+}
+
+f.LVegTyp.utm <- function(where) {
+  x <- where@coords[,1]
+  y <- where@coords[,2]
+  spp <- SpatialPoints(data.frame(x=x,y=y),
+                       proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
+  spp <- spTransform(spp, CRS("EPSG:4326"))
+  v <- rep(NA, nrow(where))
+    temp_spdf <- temproal_spdf_LVegTyp(105)
+    v<- over(spp,temp_spdf[,'var'])$var
+    if (any(is.na(v))) {
+      v <- bru_fill_missing(temp_spdf, spp, v)
+    }
+  return(v)
+}
+
+f.LVegTyp.utm(coords)
+
+temproal_spdf_LVegCov <- function(time){
+  m <- as.integer(time)
+  # average over the time.idx
+  spdf <- SpatialPixelsDataFrame(points = grid_pixels,
+                                 data = data.frame(var=as.vector(LVegCov.month[,,m]),
+                                                   time=time))
+  proj4string(spdf) <- CRS("EPSG:4326")
+  return(spdf)
+}
+
+f.LVegCov.utm <- function(where) {
+  x <- where@coords[,1]
+  y <- where@coords[,2]
+  spp <- SpatialPoints(data.frame(x=x,y=y),
+                       proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
+  spp <- spTransform(spp, CRS("EPSG:4326"))
+  v <- rep(NA, nrow(where))
+  temp_spdf <- temproal_spdf_LVegCov(105)
+  v<- over(spp,temp_spdf[,'var'])$var
+  if (any(is.na(v))) {
+    v <- bru_fill_missing(temp_spdf, spp, v)
+  }
+  return(v)
+}
+
+
+f.LVegTyp.utm_Combined <- function(where) {
+  x <- where@coords[,1]
+  y <- where@coords[,2]
+  spp <- SpatialPoints(data.frame(x=x,y=y),
+                       proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
+  spp <- spTransform(spp, CRS("EPSG:4326"))
+  v <- rep(NA, nrow(where))
+  temp_spdf <- temproal_spdf_LVegTyp(105)
+  v<- over(spp,temp_spdf[,'var'])$var
+  v[which(v!='7')] <- '0'
+  if (any(is.na(v))) {
+    v <- bru_fill_missing(temp_spdf, spp, v)
+    v[which(v!='7')] <- '0'
+  }
+  return(v)
+}
+
+
+f.LVegTyp.utm_Combined(coords)
+popu_2015$Population_Rate <- (popu_2015$Population_Rate - mean(popu_2015$Population_Rate, na.rm = TRUE))/sd(popu_2015$Population_Rate)
+
+f.Popu.utm <- function(where) {
+  x <- where@coords[,1]
+  y <- where@coords[,2]
+  spp <- SpatialPoints(data.frame(x=x,y=y),
+                       proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
+  spp <- spTransform(spp, CRS("+proj=longlat +datum=WGS84 +no_defs"))
+  v <- over(spp,popu_2015[,'Population_Rate'])$Population_Rate
+  if (any(is.na(v))) {
+    v <- bru_fill_missing(popu_2015, spp, v)
+  }
+  return(v)
+}
+summary(f.Popu.utm(coords))
+
+cmp2.1 <- coordinates  ~  
+  mySmooth(coordinates , model = spde)+
+  LVegCov(f.LVegCov.utm(.data.),model='linear')+
+  # Popu(f.Popu.utm(.data.),model='linear') +
+  Intercept(1)
+  # LVegTyp(f.LVegTyp.utm_Combined(.data.),model='factor_full') -1 
+
+t1 <-  Sys.time()
+
+fit2.1 <- lgcp(cmp2.1, data=coords, samplers = domainSP,
+             domain = list(coordinates  = mesh),
+             options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+print(summary(fit2.1))
+
+
+cmp2.2 <- coordinates  ~  
+  mySmooth(coordinates , model = spde)+
+  LVegCov(f.LVegCov.utm(.data.),model=spde1D.LVegCov)+
+  # Popu(f.Popu.utm(.data.),model='linear') +
+  Intercept(1)
+# LVegTyp(f.LVegTyp.utm_Combined(.data.),model='factor_full') -1 
+
+t1 <-  Sys.time()
+
+fit2.2 <- lgcp(cmp2.2, data=coords, samplers = domainSP,
+               domain = list(coordinates  = mesh),
+               options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+print(summary(fit2.2))
+
+cmp2.3 <- coordinates  ~  
+  mySmooth(coordinates , model = spde)+
+  # LVegCov(f.LVegCov.utm(.data.),model=spde1D.LVegCov)+
+  Popu(f.Popu.utm(.data.),model='linear') +
+  Intercept(1)
+# LVegTyp(f.LVegTyp.utm_Combined(.data.),model='factor_full') -1 
+
+t1 <-  Sys.time()
+
+fit2.3 <- lgcp(cmp2.3, data=coords, samplers = domainSP,
+               domain = list(coordinates  = mesh),
+               options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+print(summary(fit2.3))
+
+cmp2.4 <- coordinates  ~  
+  mySmooth(coordinates , model = spde)+
+  # LVegCov(f.LVegCov.utm(.data.),model=spde1D.LVegCov)+
+  # Popu(f.Popu.utm(.data.),model='linear') +
+  # Intercept(1)
+LVegTyp(f.LVegTyp.utm_Combined(.data.),model='factor_full') -1
+
+t1 <-  Sys.time()
+
+fit2.4 <- lgcp(cmp2.4, data=coords, samplers = domainSP,
+               domain = list(coordinates  = mesh),
+               options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+print(summary(fit2.4))
+
+cmp3 <- coordinates  ~  Intercept(1) +
+  mySmooth(coordinates, model = spde2) 
+
+t1 <-  Sys.time()
+fit3 <- lgcp(cmp3, data=coords, samplers = domainSP,
+             domain = list(coordinates  = mesh2),
+             options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+
+cmp4 <- coordinates  ~
+  mySmooth(coordinates, model = spde2) + 
+  # LVegTyp(f.LVegTyp.utm(.data.),model='factor_full') -1
+  LVegCov(f.LVegCov.utm(.data.),model='linear') + Intercept(1)
+
+t1 <-  Sys.time()
+fit4 <- lgcp(cmp4, data=coords, samplers = domainSP,
+             domain = list(coordinates  = mesh2),
+             options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+
+
+
+new_data <- fm_pixels(mesh, mask = domainSP, format = "sp",dims=c(20,50))
+new_data$open <- rep(data.new[1,]$open,nrow(new_data))
+new_data$LVegTyp <- f.LVegTyp.utm(new_data)
+new_data$LVegCov <-  f.LVegCov.utm(new_data)
+new_data$LVegTyp_combined <-  f.LVegTyp.utm_Combined(new_data)
+new_data$Populaiton <- f.Popu.utm(new_data)
+
+ggplot() + gg(new_data,aes(fill=Populaiton)) 
+
+lprange <- range(new_data$LVegCov)
+csc <- scale_fill_gradientn(colours = brewer.pal(9, "YlOrRd"), limits = lprange)
+ggplot() +
+  # gg(mesh) +
+  gg(new_data,aes(fill=LVegCov)) +
+  # geom_sf(data = boundary, alpha = 0.1, fill = "blue") +
+  geom_sf(data = st_as_sf(coords)) + 
+  ggtitle('Low Vegetation Coverate')+
+  csc
+
+
+pred1<- predict(
+  fit1,
+  new_data,
   ~ data.frame(
-    lambda = exp(mySmooth + Intercept),
-    loglambda = mySmooth + Intercept
+    lambda = exp(mySmooth + Intercept)
   )
 )
 
+pred2<- predict(
+  fit2,
+  new_data,
+  ~ data.frame(
+    lambda = exp(mySmooth  + LVegCov + Intercept)
+  )
+)
+
+pred3<- predict(
+  fit3,
+  new_data,
+  ~ data.frame(
+    lambda = exp(mySmooth   + Intercept)
+  )
+)
+
+pred4<- predict(
+  fit4,
+  new_data,
+  ~ data.frame(
+    lambda = exp(mySmooth  + LVegTyp)
+  )
+)
+
+# new_data$temp <- f.temp.utm(new_data)
+# pred3<- predict(
+#   fit3,
+#   new_data,
+#   ~ data.frame(
+#     lambda = exp(mySmooth + Intercept + temp)
+#   )
+# )
+
+lprange <- range(pred1$mean,pred2$mean,pred3$mean)
+csc <- scale_fill_gradientn(colours = brewer.pal(9, "YlOrRd"), limits = lprange)
 pl1 <- ggplot() +
-  gg(pred$lambda) +
+  gg(pred1,aes(fill=mean)) +
+  csc+
   gg(domainSP) +
-  ggtitle("LGCP fit to Points", subtitle = "(Response Scale)")
+  ggtitle("LGCP fit to Points", subtitle = "Only SPDE")
 
 pl2 <- ggplot() +
-  gg(pred$loglambda) +
+  gg(pred2, aes(fill=mean)) +
+  csc+
   gg(domainSP, alpha = 0) +
-  ggtitle("LGCP fit to Points", subtitle = "(Linear Predictor Scale)")
+  ggtitle("LGCP fit to Points", subtitle = "SPDE + Covariates")
 
-multiplot(pl1, pl2, cols = 2)
+multiplot(pl1,pl2,cols=2)
+
+
+pl3 <- ggplot() +
+  gg(pred3, aes(fill=mean))  +
+  csc+
+  gg(domainSP, alpha = 0) +
+  ggtitle("LGCP fit to Points", subtitle = "Only Covariates")
+
+multiplot(pl1,pl2, pl3,cols = 3)
 
 
 ggplot() +
@@ -399,7 +670,7 @@ As1 <- prepare_residual_calculations(
 )
 # Residuals for the vegetation model
 res1 <- residual_df(
-  fit, As1$df, expression(exp(mySmooth + Intercept)),
+  fit1, As1$df, expression(exp(mySmooth + Intercept)),
   As1$A_sum, As1$A_integrate
 )
 knitr::kable(edit_df(res1, c(
@@ -407,14 +678,93 @@ knitr::kable(edit_df(res1, c(
   "sd.mc_std_err", "median"
 )))
 
-fit_csc <- set_csc(res1, rep("RdBu", 3))
+grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
+                                cellsize = c(0.25,0.25), 
+                                cells.dim = c(17, 29)))
+# sgrd <- SpatialGridDataFrame(grd, data = data.frame(val = runif(240)), proj4string = CRS("+proj=longlat +datum=WGS84"))
+grd_sp <- SpatialPixelsDataFrame(points = grd, data = data.frame(id = 1:length(grd)),proj4string = CRS("+proj=longlat +datum=WGS84"))
+
+grd_poly <- as(grd_sp, 'SpatialPolygons')
+grd_poly <- spTransform(grd_poly, CRS(projutm))
+
+
+B2 <- as_Spatial(st_intersection(st_as_sf(grd_poly),st_as_sf(B)))
+
+As2 <- prepare_residual_calculations(
+  samplers = B2, domain = mesh,
+  observations = coords
+)
+res2.1 <- residual_df(
+  fit1, As2$df, expression(exp(mySmooth + Intercept)),
+  As2$A_sum, As2$A_integrate
+)
+res2.2.1 <- residual_df(
+  fit2.1, As2$df, expression(exp(mySmooth + LVegCov+Intercept)),
+  As2$A_sum, As2$A_integrate
+)
+
+res2.2.2 <- residual_df(
+  fit2.2, As2$df, expression(exp(mySmooth + LVegCov+Intercept)),
+  As2$A_sum, As2$A_integrate
+)
+
+res2.2.3 <- residual_df(
+  fit2.3, As2$df, expression(exp(mySmooth + Popu+Intercept)),
+  As2$A_sum, As2$A_integrate
+)
+
+res2.2.4 <- residual_df(
+  fit2.4, As2$df, expression(exp(mySmooth + LVegTyp)),
+  As2$A_sum, As2$A_integrate
+)
+
+As2.3 <- prepare_residual_calculations(
+  samplers = B2, domain = mesh2,
+  observations = coords
+)
+res3 <- residual_df(
+  fit3, As2.3$df, expression(exp(mySmooth + Intercept)),
+  As2.3$A_sum, As2.3$A_integrate
+)
+
+
+
+fit_csc1 <- set_csc(res2.2.2, rep("RdBu", 3))
 # Store plots
-plotB1 <- residual_plot(B1, res1, fit_csc, "SPDE Model")
+plotB2.1 <- residual_plot(B2, res2.1, fit_csc1, "fit1")
+plotB2.2.1 <- residual_plot(B2, res2.2.1, fit_csc1, "fit2.1")
+plotB2.2.2 <- residual_plot(B2, res2.2.2, fit_csc1, "fit2.2")
+plotB2.2.3 <- residual_plot(B2, res2.2.3, fit_csc1, "fit2.3")
+plotB2.2.4 <- residual_plot(B2, res2.2.4, fit_csc1, "fit2.4")
+plotB2.3 <- residual_plot(B2, res2.3, fit_csc1, "fit3")
+
+((plotB2.1$Pearson | plotB2.2.1$Pearson | plotB2.2.2$Pearson) ) +
+  plot_annotation(title = "Vegetation Model") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+((plotB2.2.3$Scaling | plotB2.2.3$Pearson ) )+
+  plot_annotation(title = "Vegetation Model") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+((plotB2.2.3$Pearson | plotB2.2.4$Pearson | plotB2.3$Pearson) ) +
+  plot_annotation(title = "Vegetation Model") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+
 
 ((plotB1$Scaling | plotB1$Inverse | plotB1$Pearson) ) +
   plot_annotation(title = "Vegetation Model") +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
+
+((plotB2$Scaling | plotB2$Inverse | plotB2$Pearson) ) +
+  plot_annotation(title = "Vegetation Model") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
 
 dist<-shapefile(file.path("/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Urban_Fires","distritos.shp"))
 dist$ID_0 <- as.factor(iconv(as.character(dist$ID_0), "UTF-8"))
