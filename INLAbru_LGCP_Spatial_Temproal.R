@@ -41,10 +41,10 @@ data.new$month.idx <- elapsed_months(data.new$open, date.start)
 
 loc.data.utm <- st_as_sf(data.new, coords=c('x_utm_new','y_utm_new'), crs='+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' )
 
-
-coords <- SpatialPointsDataFrame(data.new[data.new$month==9,], coords=data.new[data.new$month==9,c('x_utm_new','y_utm_new')], 
+cond <- data.new$month==9 & data.new$length > 24*60
+coords <- SpatialPointsDataFrame(data.new[cond,],coords=data.new[cond,c('x_utm_new','y_utm_new')], 
                                  proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
-
+coords$time.idx <- coords$year.idx
 library(rnaturalearth)
 map <- ne_countries(type = "countries", country = "Portugal",
                     scale = "medium", returnclass = "sf")
@@ -58,19 +58,25 @@ ggplot() + geom_sf(data = map_mainland) +
 
 loc.d <- cbind(st_coordinates(map_mainland)[, 1], st_coordinates(map_mainland)[, 2])
 
-# inner.length <- 20
-# outer.length <- 50
-# cutoff <- 6
-
-inner.length <- 40
-outer.length <- 70
-cutoff <- 15
+inner.length <- 20
+outer.length <- 50
+cutoff <- 6
+# inner.length <- 40
+# outer.length <- 70
+# cutoff <- 15
 
 mesh <- inla.mesh.2d(loc.domain = loc.d, max.edge=c(inner.length,outer.length), cutoff=cutoff,
                      crs=projutm)
 mesh$n
 plot(mesh)
 # points(coords, col = 4, pch = 19, cex=0.2)
+
+
+inner.length <- 40
+outer.length <- 70
+cutoff <- 15
+mesh.rough <- inla.mesh.2d(loc.domain = loc.d, max.edge=c(inner.length,outer.length), cutoff=cutoff,
+                           crs=projutm)
 
 domain.polys <- Polygons(list(Polygon(loc.d)), '0')
 domainSP <- SpatialPolygons(list(domain.polys),proj4string=CRS(projutm))
@@ -95,7 +101,7 @@ ggplot() +
   gg(mesh) +
   gg(domainSP) +
   # gg(mrsea$samplers) +
-  gg(loc.data.utm, size = 0.1) +
+  gg(loc.data.utm[cond,], size = 0.1) +
   facet_wrap(~year.idx) +
   ggtitle("Fire Occurance by year")
 
@@ -107,6 +113,12 @@ sigma <- 8
 p2 <- 0.1
 
 spde <- inla.spde2.pcmatern(mesh = mesh,
+                            # PC-prior on range: P(practic.range < r) = p1
+                            prior.range = c(r, p1),
+                            # PC-prior on sigma: P(sigma > sigma) = p2
+                            prior.sigma = c(sigma, p2))
+
+spde.rough <- inla.spde2.pcmatern(mesh = mesh.rough,
                             # PC-prior on range: P(practic.range < r) = p1
                             prior.range = c(r, p1),
                             # PC-prior on sigma: P(sigma > sigma) = p2
@@ -716,8 +728,8 @@ summary(fit1)
 # )
  
 cmp1.1 <- coordinates + time.idx ~   Intercept(1) +
-        mySmooth(coordinates , model = spde) + 
-        TimeEffect(f.time(.data.), model='rw1')
+        mySmooth(coordinates , model = spde,  group = time.idx, ngroup = 9) 
+
 
 
 t1 <-  Sys.time()
@@ -728,31 +740,10 @@ t2 <-  Sys.time()
 print(t2-t1)
 summary(fit1.1)
 
-# lambda1.1 <- predict(
-#   fit1.1,
-#   ppxl_all,
-#   ~ data.frame(time.idx = time.idx, lambda = exp( Intercept + mySmooth + TimeEffect ))
-# )
-
-
-cmp1.2 <- coordinates + time.idx ~   Intercept(1) +
-  mySmooth(coordinates , model = spde) +
-  TimeEffect(f.time(.data.), model='ar1')
-
-
-t1 <-  Sys.time()
-fit1.2 <- lgcp(cmp1.2, data=coords, samplers = domainSP,
-               domain = list(coordinates  = mesh, time.idx = seq_len(9)),
-               options=list(verbose=TRUE))
-t2 <-  Sys.time()
-print(t2-t1)
-summary(fit1.2)
-
- 
 
 cmp1.3 <- coordinates + time.idx ~   Intercept(1) +
   mySmooth(coordinates , model = spde) + 
-  TimeEffect(f.time(.data.), model='iid')
+  TimeEffect(f.time(.data.), model='ar1')
 
 
 t1 <-  Sys.time()
@@ -763,6 +754,20 @@ t2 <-  Sys.time()
 print(t2-t1)
 summary(fit1.3)
 
+
+cmp1.4 <- coordinates + time.idx ~   Intercept(1) +
+  CSmooth(coordinates , model = spde) + 
+  TSmooth(coordinates , model = spde, group = time.idx, ngroup = 9)
+  # TimeEffect(f.time(.data.), model='iid')
+
+
+t1 <-  Sys.time()
+fit1.4 <- lgcp(cmp1.4, data=coords, samplers = domainSP,
+               domain = list(coordinates  = mesh, time.idx = seq_len(9)),
+               options=list(verbose=TRUE))
+t2 <-  Sys.time()
+print(t2-t1)
+summary(fit1.4)
 
 # month_2_season <- function(x){
 #   time.idx <- (x-1)%%12 + 1
@@ -853,7 +858,7 @@ f.LVegLAI.utm.year <- function(where) {
   return(v)
 }
 
-mesh1D.NDVI <- fm_mesh_1d(seq(-1,1,by=0.05), boundary = "free")
+mesh1D.NDVI <- fm_mesh_1d(seq(-1.2,1.2,by=0.05), boundary = "free")
 spde1D.NDVI <- inla.spde2.pcmatern(mesh1D.NDVI,
                                    prior.range = c(0.005, 0.1),
                                    prior.sigma = c(0.1, 0.1)
@@ -920,11 +925,10 @@ t2 <-  Sys.time()
 print(t2-t1)
 summary(fit2.2)
 
-
-
-cmp2.3 <- coordinates + time.idx ~  Intercept(1)+
-  mySmooth(coordinates , model = spde) +
-  TimeEffect(f.time(.data.), model='iid')+
+   
+cmp2.3 <- coordinates + time.idx ~  Intercept(1) +
+  CSmooth(coordinates , model = spde) + 
+  TSmooth(coordinates , model = spde, group = time.idx, ngroup = 9) +
   NDVI(f.NDVI.utm(.data.), model = spde1D.NDVI)+
   EVI(f.EVI.utm(.data.), model = spde1D.NDVI)
 
@@ -937,6 +941,10 @@ fit2.3 <- lgcp(cmp2.3, data=coords, samplers = domainSP,
 t2 <-  Sys.time()
 print(t2-t1)
 summary(fit2.3)
+
+# 
+# load(file.path(dir.out, 'LGCP_2SPDE_wi_cova.RData'))
+# load(file.path(dir.out, 'LGCP_2SPDE_wo_cova.RData'))
 
 
 NDVI.pred <- predict(
@@ -1162,7 +1170,7 @@ cmp4.1 <- coordinates + time.idx ~  Intercept(1)+
 
 
 t1 <-  Sys.time()
-fit4.1 <- lgcp(cmp4.1, data=coords[coords$length>24*60,], samplers = domainSP,
+fit4.1 <- lgcp(cmp4.1, data=coords, samplers = domainSP,
                domain = list(coordinates  = mesh, time.idx = seq_len(9)),
                options=list(verbose=TRUE))
 t2 <-  Sys.time()
@@ -1456,27 +1464,27 @@ B2.Cent <- SpatialPointsDataFrame( gCentroid(B2,byid=TRUE), data=data.frame(weig
 
 B2.Cent$time.idx <- 1
 
-dist<-shapefile(file.path("/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Urban_Fires","distritos.shp"))
-dist$ID_0 <- as.factor(iconv(as.character(dist$ID_0), "UTF-8"))
-dist$ISO <- as.factor(iconv(as.character(dist$ISO), "UTF-8"))
-dist$NAME_0 <- as.factor(iconv(as.character(dist$NAME_0), "UTF-8"))
-dist$ID_1 <- as.factor(iconv(as.character(dist$ID_1), "UTF-8"))
-dist$NAME_1 <- as.factor(iconv(as.character(dist$NAME_1), "UTF-8"))
-dist$HASC_1 <- as.factor(iconv(as.character(dist$HASC_1),  "UTF-8"))
-dist$CCN_1<- as.factor(iconv(as.character(dist$CCN_1),  "UTF-8"))
-dist$CCA_1 <- as.factor(iconv(as.character(dist$CCA_1), "UTF-8"))
-dist$TYPE_1 <- as.factor(iconv(as.character(dist$TYPE_1), "UTF-8"))
-dist$ENGTYPE_1 <- as.factor(iconv(as.character(dist$ENGTYPE_1), "UTF-8"))
-dist$NL_NAME_1 <- as.factor(iconv(as.character(dist$NL_NAME_1), "UTF-8"))
-dist$VARNAME_1 <- as.factor(iconv(as.character(dist$VARNAME_1), "UTF-8"))
-dist=dist[dist$NAME_1!="Açores",]
-dist=dist[dist$NAME_1!="Madeira",]
-
-district <- dist[dist$NAME_0=="Portugal",]
-district.utm <- spTransform(district, CRS(projutm)) 
-
-ggplot() + gg(coords, size=0.01) + 
-  gg(district.utm) + gg(NDVI.list[[2012]])
+# dist<-shapefile(file.path("/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Urban_Fires","distritos.shp"))
+# dist$ID_0 <- as.factor(iconv(as.character(dist$ID_0), "UTF-8"))
+# dist$ISO <- as.factor(iconv(as.character(dist$ISO), "UTF-8"))
+# dist$NAME_0 <- as.factor(iconv(as.character(dist$NAME_0), "UTF-8"))
+# dist$ID_1 <- as.factor(iconv(as.character(dist$ID_1), "UTF-8"))
+# dist$NAME_1 <- as.factor(iconv(as.character(dist$NAME_1), "UTF-8"))
+# dist$HASC_1 <- as.factor(iconv(as.character(dist$HASC_1),  "UTF-8"))
+# dist$CCN_1<- as.factor(iconv(as.character(dist$CCN_1),  "UTF-8"))
+# dist$CCA_1 <- as.factor(iconv(as.character(dist$CCA_1), "UTF-8"))
+# dist$TYPE_1 <- as.factor(iconv(as.character(dist$TYPE_1), "UTF-8"))
+# dist$ENGTYPE_1 <- as.factor(iconv(as.character(dist$ENGTYPE_1), "UTF-8"))
+# dist$NL_NAME_1 <- as.factor(iconv(as.character(dist$NL_NAME_1), "UTF-8"))
+# dist$VARNAME_1 <- as.factor(iconv(as.character(dist$VARNAME_1), "UTF-8"))
+# dist=dist[dist$NAME_1!="Açores",]
+# dist=dist[dist$NAME_1!="Madeira",]
+# 
+# district <- dist[dist$NAME_0=="Portugal",]
+# district.utm <- spTransform(district, CRS(projutm)) 
+# 
+# ggplot() + gg(coords, size=0.01) + 
+#   gg(district.utm) + gg(NDVI.list[[2012]])
 
 ggplot() + gg(coords, size=0.01) + 
   gg(district.utm) + gg(spTransform(popu_2010_inside, CRS(projutm)))
@@ -1487,13 +1495,11 @@ samplers.all <-  do.call(rbind, lapply(1:9, function(x) {
                                               B2@data$time.idx=x 
                                               return(B2)
                                               }))
-samplers.all.dist <-  do.call(rbind, lapply(1:9, function(x) {
-  district.utm@data$time.idx=x 
-  return(district.utm)
-}))
-# test1 <- residual_df_temproal(1:108, samplers=B1, domain=mesh, observations=coords,
-#                               model=fit1.3,
-#                               expr=expression(exp(Intercept+ fwi)))
+# samplers.all.dist <-  do.call(rbind, lapply(1:9, function(x) {
+#   district.utm@data$time.idx=x 
+#   return(district.utm)
+# }))
+
 
 res1 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=mesh, observations=coords,
                                   model=fit1,
@@ -1502,13 +1508,17 @@ res1.1 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=m
                                   model=fit1.1,
                                   expr=expression(exp(Intercept + mySmooth + TimeEffect))))
 
-res1.2 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=mesh, observations=coords,
+res1.2 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=mesh.rough, observations=coords,
                                 model=fit1.2,
                                 expr=expression(exp(Intercept + mySmooth + TimeEffect))))
 
 res1.3 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=mesh, observations=coords,
                                 model=fit1.3,
                                 expr=expression(exp(Intercept + mySmooth + TimeEffect))))
+
+res1.4 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=mesh, observations=coords,
+                                model=fit1.4,
+                                expr=expression(exp(Intercept + CSmooth + TSmooth))))
 
 res2.3 <- do.call(rbind, lapply(1:9, residual_df_temproal, samplers=B2, domain=mesh, observations=coords,
                                 model=fit2.3,
@@ -1727,24 +1737,24 @@ my_residual_plot_temporal <- function(samplers.all, residuals, model_name) {
 }
 
 
-plot1 <- my_residual_plot_temporal(samplers.all.dist, res1.3.dist, model_name='fit1.3')
-plot2 <- my_residual_plot_temporal(samplers.all.dist, res2.3.dist, model_name='fit2.6')
-
-plot3 <- my_residual_plot_temporal(samplers.all, res4.1, model_name='fit4.1')
+plot1 <- my_residual_plot_temporal(samplers.all, res1.2, model_name='fit1.2')
+plot2 <- my_residual_plot_temporal(samplers.all, res1.3, model_name='fit1.3')
+plot3 <- my_residual_plot_temporal(samplers.all, res1.4, model_name='fit1.4')
 plot4 <- my_residual_plot_temporal(samplers.all.dist, res4.1.dist, model_name='fit4.1')
 # plot5 <- my_residual_plot_temporal(samplers.all, res2.3, model_name='fit2.6')
-lprange.scale <- max(res1.3.dist %>%
-                         filter(Type == "Pearson Residuals" ) %>%
-                         pull(mean),
-                       res2.3.dist %>%
-                         filter(Type == "Pearson Residuals" ) %>%
+lprange.scale <- max(
+                     res1.3 %>%
+                       filter(Type == "Scaling Residuals" ) %>%
+                       pull(mean),
+                     res1.4 %>%
+                         filter(Type == "Scaling Residuals" ) %>%
                          pull(mean)
                        )*c(-1,1)
 csc.scale <- scale_fill_gradientn(colours = brewer.pal(3, "RdBu"), limits = lprange.scale)
 
 p1 <- plot1$Pearson + csc.scale
-p2 <- plot2$Pearson + csc.scale
-p3 <- plot3$Pearson + scale_fill_gradientn(colours = brewer.pal(3, "RdBu"))
+p2 <- plot2$Scaling + csc.scale
+p3 <- plot3$Scaling + csc.scale
 p4 <- plot4$Pearson +  scale_fill_gradientn(colours = brewer.pal(3, "RdBu"))
 p5 <- plot5$Scaling + csc.scale
 
@@ -1752,6 +1762,12 @@ multiplot(p1,p2,p3,p4, cols=2)
 
 
 
+check.idx <- abs(res1.3 %>%
+                   filter(Type == "Scaling Residuals" ) %>%
+                   pull(mean))>5
+
+(res1.4 %>%
+  filter(Type == "Scaling Residuals" )) [check.idx,]
 
 pc <- prcomp(samplers.all@data[,c('FWI','Wind_Spd','RHumi','Temp','Pricp')],
              center = TRUE,
