@@ -194,20 +194,7 @@ data.fit3 <- reshape(data.fit2[,c('grid.idx','time.idx','y')],
 )
 
 B2.merge <- merge(B2, data.fit3, by = "grid.idx")
-# ggplot(st_as_sf(B2)) + geom_sf(aes(fill=y.7))
 
-
-# ggplot(B2_sf) + geom_sf(aes(fill = y)) +
-#   facet_wrap(~year.idx, dir = "h", ncol = 3) +
-#   ggtitle("Fire ignition") + theme_bw() +
-#   theme(
-#     axis.text.x = element_blank(),
-#     axis.text.y = element_blank(),
-#     axis.ticks = element_blank()
-#   ) +
-#   scale_fill_gradient2(
-#     midpoint = 1, low = "blue", mid = "white", high = "red"
-#   )
 
 
 B2.adj <- poly2nb(B2)
