@@ -41,33 +41,6 @@ data.new$month.idx <- as.integer(format(data.new$open,format='%m'))
 data.new$time.idx <- elapsed_months(data.new$open, date.start)
 
 
-new.idx <- c()
-for(i in 0:9){
-  if (i==0) {
-    new.idx <- c(rep(1,5),2:6)
-  }else{
-    new.idx <- c(new.idx, rep(i*6+1,7), (i*6+2):(i*6+6))
-  }
-}
-
-new.idx1 <- c()
-for(i in 0:9){
-  if (i==0) {
-    new.idx1 <- c(rep(1,6),2:4)
-  }else{
-    new.idx1 <- c(new.idx1, rep(i*4+1,9), (i*4+2):(i*4+4))
-  }
-}
-
-map.new.idx <- function(x){
-  return(new.idx[x]-1)
-}
-
-map.new.idx1 <- function(x){
-  return(new.idx1[x])
-}
-data.new$time.idx.grp <- map.new.idx1(data.new$time.idx)
-
 
 loc.data.utm <- st_as_sf(data.new, coords=c('x_utm_new','y_utm_new'), crs='+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' )
 
@@ -142,7 +115,7 @@ B2$E <- area(B2)
 
 B2$grid.idx <- 1:nrow(B2)
 
-ggplot(st_as_sf(B2)) + geom_sf(aes(fill=E))
+ggplot(st_as_sf(B2)) + geom_sf(aes(fill=grid.idx))
 
 data.merge <- B2 |>  
   st_as_sf() |> # cast to sf
@@ -151,7 +124,7 @@ data.merge <- B2 |>
   group_by(grid_id)
 
 
-data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=12, length >=24*60 )%>% 
+data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, length >=24*60 )%>% 
   group_by(grid.idx,grid_id, year.idx, month.idx, time.idx) %>%
   summarise(area_ha = sum(area_ha), 
             log_ba = log(area_ha),
@@ -162,19 +135,8 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=12, lengt
             y.utm = mean(grid.cent.y.utm),
             E = mean(E))
 
-data.fit.ba1 <- data.merge %>% st_drop_geometry() %>% filter( time.idx.grp<=12  )%>% 
-  group_by(grid.idx, time.idx.grp) %>%
-  summarise(area_ha = sum(area_ha), 
-            log_ba = log(area_ha),
-            y = n(),
-            lon.grid = mean(lon.grid),
-            lat.grid = mean(lat.grid),
-            x.utm = mean(grid.cent.x.utm),
-            y.utm = mean(grid.cent.y.utm),
-            E = mean(E))
 
-
-data.fit2 <- do.call(rbind, lapply(1:12, function(x) {B2@data$time.idx = x 
+data.fit2 <- do.call(rbind, lapply(1:108, function(x) {B2@data$time.idx = x 
 return(B2@data)}))
 print(dim(data.fit2))
 data.fit2 <- merge(data.fit2, data.fit.ba[,c('grid.idx','time.idx','year.idx', 'month.idx','y','area_ha','log_ba')],
@@ -232,6 +194,7 @@ data.fit2$UComp <- f.get.cov(data.fit2, 'u')
 data.fit2$VComp <- f.get.cov(data.fit2, 'v')
 data.fit2$sqrt_ba <- sqrt(data.fit2$area_ha)
 data.fit2[is.na(data.fit2$sqrt_ba), 'sqrt_ba'] <- 0
+data.fit2$z <- as.vector((data.fit2$y>0)+0)
 
 covar.names <- c('FWI','HVegCov','HVegLAI','LVegCov','LVegLAI','Pricp','RHumi','Temp',
                  'UComp','VComp')
@@ -239,15 +202,48 @@ for (var in covar.names ){
   data.fit2[,var] <- (data.fit2[,var]-mean(data.fit2[,var]))/sd(data.fit2[,var])
 }
 
-cor(data.fit2$FWI,data.fit2$RHumi)
-res.pca <- princomp(data.fit2[,covar.names])
-summary(res.pca)
-res.pca$loadings[, 1:2]
-library(factoextra)
-fviz_eig(res.pca, addlabels = TRUE)
+covar.names <- c(covar.names ,'LVegTyp','HVegTyp','month.idx','lon.grid','lat.grid')
+library(randomForest)
+
+data.rf <- data.fit2[data.fit2$time.idx <= 84, c(covar.names,'area_ha','z')]
+# for (var in c('LVegTyp','HVegTyp','month.idx')){
+#   data.rf[,var] <- as.factor(data.rf[,var])
+# }
 
 
+data.rf$area_ha <- log(data.rf$area_ha)
+data.rf[is.na(data.rf$area_ha),'area_ha'] <- 0
+data.rf$z <- as.factor(data.rf$z)
+set.seed(100)
 
+train <- sample(nrow(data.rf), nrow(data.rf), replace = FALSE)
+TrainSet1 <- data.rf[train, c(covar.names,'z')]
+
+model.z <- randomForest(z ~ ., data = TrainSet1, importance = TRUE)
+model.z
+
+weight <- ifelse( data.rf$z==1, 3, 1 )
+model.z1 <- randomForest(z ~ ., data = TrainSet1, weights=weight, importance = TRUE)
+model.z1
+data.rf$score_z <- as.vector(predict(model.z, data.rf,type = "prob")[,2])
+
+# 1. Area under curve
+
+
+TrainSet2 <- data.rf[train, c(covar.names, 'score_z','area_ha')]
+model.ba <- randomForest(area_ha ~ ., data = TrainSet2, importance = TRUE)
+model.ba
+# # 
+# save(model1,model2, file=file.path(dir.out,'RF_model.RData'))
+
+# load(file=file.path(dir.out,'RF_model.RData'))
+data.fit2$score_z <-  as.vector(predict(model.z, data.fit2,type = "prob")[,2])
+data.fit2$score_ba <-  predict(model.ba, data.fit2)
+
+
+for (var in c('score_ba','score_z') ){
+  data.fit2[,var] <- (data.fit2[,var]-mean(data.fit2[,var]))/sd(data.fit2[,var])
+}
 
 data.fit3 <- reshape(data.fit2[,c('grid.idx','time.idx','y')],
                      timevar = "time.idx",
@@ -269,10 +265,18 @@ n1 <- dim(data.fit2)[1]
 nothing1 <- rep(NA, n1)
 nothing2 <- rep(NA, n1)
 
+data.fit2 <- data.fit2[order(data.fit2$time.idx),]
+
 z <- as.vector((data.fit2$y>0)+0)
 log.ba <- as.vector(ifelse(data.fit2$y>0, data.fit2$log_ba, NA))
 cnt = as.vector(data.fit2$y)
 # 
+
+#prepare for prediction
+z[which(data.fit2$time.idx>=85)] <- NA
+log.ba[which(data.fit2$time.idx>=85)] <- NA
+cnt[which(data.fit2$time.idx>=85)] <- NA
+
 
 
 cntNA <- as.vector(c(cnt,nothing1,nothing2))
@@ -301,37 +305,98 @@ i.spat.iid = c(data.fit2$grid.idx, nothing1, nothing2)# fire ignition
 i.spat2 = c(nothing1,data.fit2$grid.idx, nothing2)# BA ind
 i.spat3 = c(nothing1, nothing2, data.fit2$grid.idx)# BA
 i.spat3.iid = c(nothing1, nothing2, data.fit2$grid.idx)# BA
+
+
+time.idx1 <- c(data.fit2$month.idx, nothing1, nothing2)# fire ignition
+time.idx2 <- c(nothing1, data.fit2$month.idx, nothing2)# BA ind
+time.idx3  <-  c(nothing1, nothing2, data.fit2$month.idx)# BA
+
+
+RHumi_1 <- c(data.fit2$RHumi,nothing1, nothing2)
+RHumi_2 <- c(nothing1,  data.fit2$RHumi, nothing2)
+RHumi_3 <- c(nothing1, nothing2, data.fit2$RHumi)
+
+RHumi_grp <- inla.group(data.fit2$RHumi, n = 20, method = "quantile")
+RHumi_grp_1 <- c(RHumi_grp, nothing1, nothing2)
+RHumi_grp_2 <- c(nothing1, RHumi_grp, nothing2)
+# RHumi_grp_3 <- c(nothing1, nothing2, RHumi_grp)
+RHumi_grp_3 <- c(nothing1, nothing2, RHumi_grp)
 # 
-# time.idx.grp <-  (data.fit2$time.idx-1)%%12 + 1
-# time.idx.grp[which(time.idx.grp<7)] <- 1
-# time.idx.grp[which(time.idx.grp==7)] <- 2
-# time.idx.grp[which(time.idx.grp==8)] <- 3
-# time.idx.grp[which(time.idx.grp==9)] <- 4
-# time.idx.grp[which(time.idx.grp>9)] <- 1
+Temp_1 <- c(data.fit2$Temp,nothing1, nothing2)
+Temp_2 <- c(nothing1,  data.fit2$Temp, nothing2)
+Temp_3 <- c(nothing1, nothing2, data.fit2$Temp)
 
-time.idx1 <- c(data.fit2$time.idx, nothing1, nothing2)# fire ignition
-time.idx2 <- c(nothing1, data.fit2$time.idx, nothing2)# BA ind
-# time.idx2.group <- c(nothing1, time.idx.grp, nothing2)# BA ind
-time.idx3  <-  c(nothing1, nothing2, data.fit2$time.idx)# BA
-# time.idx3.group  <-  c(nothing1, nothing2, time.idx.grp )# BA
+Temp_grp <- inla.group(data.fit2$Temp, n = 20, method = "quantile")
+Temp_grp_1 <- c(Temp_grp,nothing1, nothing2)
+Temp_grp_2 <- c(nothing1,  Temp_grp, nothing2)
+Temp_grp_3 <- c(nothing1, nothing2, Temp_grp)
 
-
-Cov1_1 <- c(data.fit2$RHumi,nothing1, nothing2)
-Cov1_2 <- c(nothing1,  data.fit2$RHumi, nothing2)
-Cov1_3 <- c(nothing1, nothing2, data.fit2$RHumi)
 # 
-Cov2_1 <- c(data.fit2$Temp,nothing1, nothing2)
-Cov2_2 <- c(nothing1,  data.fit2$Temp, nothing2)
-Cov2_3 <- c(nothing1, nothing2, data.fit2$Temp)
-# 
-Cov3_1 <- c(data.fit2$UComp,nothing1, nothing2)
-Cov3_2 <- c(nothing1,  data.fit2$UComp, nothing2)
-Cov3_3 <- c(nothing1, nothing2, data.fit2$UComp)
+UComp_1 <- c(data.fit2$UComp,nothing1, nothing2)
+UComp_2 <- c(nothing1,  data.fit2$UComp, nothing2)
+UComp_3 <- c(nothing1, nothing2, data.fit2$UComp)
 
-Cov4_1 <- c(data.fit2$VComp,nothing1, nothing2)
-Cov4_2 <- c(nothing1,  data.fit2$VComp, nothing2)
-Cov4_3 <- c(nothing1, nothing2, data.fit2$VComp)
+UComp_grp <- inla.group(data.fit2$UComp, n = 20, method = "quantile")
+UComp_grp_1 <- c(UComp_grp,nothing1, nothing2)
+UComp_grp_2 <- c(nothing1,  UComp_grp, nothing2)
+UComp_grp_3 <- c(nothing1, nothing2, UComp_grp)
 
+VComp_1 <- c(data.fit2$VComp,nothing1, nothing2)
+VComp_2 <- c(nothing1,  data.fit2$VComp, nothing2)
+VComp_3 <- c(nothing1, nothing2, data.fit2$VComp)
+
+VComp_grp <- inla.group(data.fit2$VComp, n = 20, method = "quantile")
+VComp_grp_1 <- c(VComp_grp,nothing1, nothing2)
+VComp_grp_2 <- c(nothing1,  VComp_grp, nothing2)
+VComp_grp_3 <- c(nothing1, nothing2, VComp_grp)
+
+score_z_grp <- inla.group(data.fit2$score_z, n = 20, method = "quantile")
+score_2 <- c(nothing1,  data.fit2$score_z, nothing2)
+score_2_grp <- c(nothing1, score_z_grp, nothing2)
+
+score_ba_grp <- inla.group(data.fit2$score_ba, n = 40, method = "quantile")
+score_ba_grp[which(score_ba_grp<0.1)] <- 0
+score_3 <- c(nothing1, nothing2, data.fit2$score_ba)
+score_3_grp <- c(nothing1, nothing2, score_ba_grp)
+
+inner.length <- 0.7
+outer.length <- 1
+Cov.mesh <- inla.mesh.2d(loc.domain = data.fit2[,c('UComp','VComp')], max.edge=c(inner.length,outer.length))
+plot(Cov.mesh)
+points(data.fit2[,c('UComp','VComp')],pch=19, col='blue', cex=0.1)
+
+plot(Cov.mesh)
+points(data.fit2[data.fit2$y>0,c('UComp','VComp')],pch=19, col='blue', cex=0.1)
+
+A.Cov <- inla.spde.make.A(mesh=Cov.mesh, loc=as.matrix(data.fit2[,c('UComp','VComp')]))
+SPDE.Cov <- inla.spde2.pcmatern(mesh = Cov.mesh, 
+                                prior.range = c(0.9, 0.3), # P(range < 50) = 0.1
+                                prior.sigma = c(1, 0.1)) # P(sigma > 1) = 0.01
+s.index <-  inla.spde.make.index(name = "Wind",
+                                 n.spde = SPDE.Cov$n.spde)
+
+cnt.stack <- inla.stack(
+  data= list(Y=cbind(cnt,NA,NA)),
+  A <- list(1,1,1),
+  effect = list(Intercept1=rep(1,nrow(data.fit2)), idarea1=data.fit2$grid.idx, time.idx1=data.fit2$time.idx ),
+  tag='pois'
+)
+
+z.stack <- inla.stack(
+  data= list(Y=cbind(NA,z,NA)),
+  A <- list(1,1,1),
+  effect = list(Intercept2=rep(1,nrow(data.fit2)), idarea2=data.fit2$grid.idx, time.idx2=data.fit2$time.idx ),
+  tag='bern'
+)
+
+ba.stack <- inla.stack(
+  data= list(Y=cbind(NA,NA,(data.fit2$area_ha)^{1/3})),
+  A <- list(1,1,1, A.Cov),
+  effect = list(Intercept3=rep(1,nrow(data.fit2)), idarea3=data.fit2$grid.idx, time.idx3=data.fit2$time.idx, i.cov = Cov.mesh$n ),
+  tag='BYM'
+)
+
+all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
 
 data=list(Y.log=outcome.matrix.log, 
           Y1 =outcome.matrix1,
@@ -348,108 +413,53 @@ data=list(Y.log=outcome.matrix.log,
                     Intercept1 = Intercept1,
                     Intercept2 = Intercept2,
                     Intercept3 = Intercept3,
-                    Cov1_1 = Cov1_1,
-                    Cov1_2 = Cov1_2,
-                    Cov1_3 = Cov1_3,
+                    RHumi_1 = RHumi_1,
+                    RHumi_2 = RHumi_2,
+                    RHumi_3 = RHumi_3,
                     # 
-                    Cov2_1 = Cov2_1,
-                    Cov2_2 = Cov2_2,
-                    Cov2_3 = Cov2_3,
-
-                    Cov3_1 = Cov3_1,
-                    Cov3_2 = Cov3_2,
-                    Cov3_3 = Cov3_3,
+                    RHumi_grp_1 = RHumi_grp_1,
+                    RHumi_grp_2 = RHumi_grp_2,
+                    RHumi_grp_3 = RHumi_grp_3,
           
-                    Cov4_1 = Cov4_1,
-                    Cov4_2 = Cov4_2,
-                    Cov4_3 = Cov4_3
+                    Temp_1 = Temp_1,
+                    Temp_2 = Temp_2,
+                    Temp_3 = Temp_3,
+          
+                    Temp_grp_1 = Temp_grp_1,
+                    Temp_grp_2 = Temp_grp_2,
+                    Temp_grp_3 = Temp_grp_3,
+
+                    UComp_1 = UComp_1,
+                    UComp_2 = UComp_2,
+                    UComp_3 = UComp_3,
+          
+                    UComp_grp_1 = UComp_grp_1,
+                    UComp_grp_2 = UComp_grp_2,
+                    UComp_grp_3 = UComp_grp_3,
+          
+                    VComp_1 = VComp_1,
+                    VComp_2 = VComp_2,
+                    VComp_3 = VComp_3,
+          
+                    VComp_grp_1 = VComp_grp_1,
+                    VComp_grp_2 = VComp_grp_2,
+                    VComp_grp_3 = VComp_grp_3,
+          
+                    score_2_grp = score_2_grp,
+                    score_3_grp = score_3_grp,
+          
+                    score_2 = score_2,
+                    score_3 = score_3
           
 )
-#
-#
 
 
-# 
-# formula <- Y ~  -1 + Intercept1 +   f(idarea1, copy='idarea2',fixed=F,group = time.idx1)+ 
-#                    + Intercept2 +    f(idarea2, model='bym2',graph = g, group = time.idx2, control.group = list(model = "ar1")) +
-#                    + Intercept3 +    f(idarea3,  copy='idarea2', fixed=F,group = time.idx3)
-# 
-# t1 <- Sys.time()
-# res <- inla(formula,
-#             family = c('poisson','binomial', 'gamma'), data = data, Ntrials=1,
-#             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-#             verbose=TRUE,
-#             control.compute=list(config = TRUE),
-#             control.fixed = list(expand.factor.strategy = 'inla')
-# )
-# t2 <- Sys.time()
-# print(t2-t1)
-# 
-# 
-# formula1 <- Y ~  -1 + Intercept1 + f(idarea1, model='bym2',graph = g, group = time.idx1, control.group = list(model = "ar1"))+ 
-#                       Intercept2 + f(idarea2, model='bym2',graph = g, group = time.idx2, control.group = list(model = "ar1")) +
-#                       Intercept3 + f(idarea3,  copy='idarea2', fixed=F, group = time.idx3)
-# 
-# 
-# t1 <- Sys.time()
-# res1 <- inla(formula1,
-#              family = c('poisson','binomial', 'gamma'), data = data,  Ntrials=1,
-#              control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-#              verbose=TRUE,
-#              control.compute=list(config = TRUE),
-#              control.fixed = list(expand.factor.strategy = 'inla')
-# )
-# t2 <- Sys.time()
-# print(t2-t1)
-# 
-# 
-# 
-# formula2 <- Y ~  -1 + Intercept1+ f(idarea1, model='bym2', graph = g)+ f(time.idx1, model='rw1',hyper = list(theta = list(prior="pc.prec", param=c(1,0.01)))) +  
-#                       Intercept2+ f(idarea2, model='bym2',graph = g, group = time.idx2, control.group = list(model = "ar1")) +
-#                       Intercept3 + f(idarea3,  copy='idarea2', group=time.idx3, fixed=F) 
-# 
-# 
-# t1 <- Sys.time()
-# res2 <- inla(formula2,
-#              family = c('poisson','binomial', 'Gaussian'), data = data,  Ntrials=1,
-#              control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-#              verbose=TRUE,
-#              control.compute=list(config = TRUE),
-#              control.fixed = list(expand.factor.strategy = 'inla')
-# )
-# t2 <- Sys.time()
-# print(t2-t1)
-# 
-# 
-formula3 <- Y3 ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g)+ f(time.idx1, model='ar1') +
-                      Intercept2 +  f(idarea2, model='bym2',graph = g) + f(time.idx2, model='ar1') +
-                      Intercept3 +  f(idarea3,  copy='idarea2',fixed=F) + f(time.idx3, model='ar1')
-                     
-
+formula0 <- Y3 ~  -1  + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
+  Intercept2 +  f(idarea2, model='bym2',graph = g, group=time.idx2) +
+  Intercept3 + f(idarea3,  copy='idarea2',fixed=F,group=time.idx3) 
 
 t1 <- Sys.time()
-res3 <- inla(formula3,
-             family = c('poisson','binomial', 'gamma'), data = data,  Ntrials=1,
-             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-             verbose=TRUE,
-             control.compute=list(config = TRUE),
-             control.fixed = list(expand.factor.strategy = 'inla')
-)
-t2 <- Sys.time()
-print(t2-t1)
-summary(res3)
-
-
-formula4 <- Y3 ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g)+ f(time.idx1, model='ar1') +
-  Intercept2 +  f(idarea2, model='bym2',graph = g) + f(time.idx2, model='ar1') +
-  Intercept3 +  f(idarea3,  copy='idarea2',fixed=F) + f(time.idx3, model='ar1') 
- 
-  # f(Cov1_3, model='linear') + f(Cov2_3, model='linear') + f(Cov3_3, model='linear') + f(Cov4_3, model='linear')
-
-
-
-t1 <- Sys.time()
-res4 <- inla(formula4,
+res0 <- inla(formula0,
              family = c('poisson','binomial', 'gp'), data = data,  Ntrials=1,
              control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
              verbose=TRUE,
@@ -459,190 +469,108 @@ res4 <- inla(formula4,
 )
 t2 <- Sys.time()
 print(t2-t1)
-summary(res4)
+summary(res0)
+
+save(res0, file=file.path(dir.out,'Temp0.RData'))
+
+formula1.1 <- Y3 ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
+  
+  Intercept2 + f(idarea2, model='bym2',graph = g,group=time.idx2) + 
+  f(score_2, model='linear', mean.linear=1, prec.linear=1) +
+  
+  Intercept3 + f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) +
+  f(score_3, model='linear',mean.linear=1, prec.linear=1)
 
 
-# cntNA <- as.vector(c(cnt,nothing1))
-# baNA = as.vector(c(nothing1, log.ba))
-# 
-# baNA1 = as.vector(c(nothing1, data.fit2$sqrt_ba))
-# 
-# 
-# 
-# outcome.matrix<-matrix(c(cntNA, baNA), ncol=2)
-# outcome.matrix1<-matrix(c(cntNA, baNA1), ncol=2)
-# 
-# 
-# Intercept1 <- c(rep(1,n1),nothing1)
-# Intercept2 <- c(nothing1, rep(1,n1))
-# 
-# i.spat.temp1  <-  c(data.fit2$grid.idx, nothing1)# fire ignition
-# i.spat.temp2  <-  c(nothing1, data.fit2$grid.idx)# BA
-# i.spat2  <-  c(nothing1, data.fit2$grid.idx)# BA
-# 
-# time.idx1 <- c(data.fit2$time.idx, nothing1)# fire ignition
-# time.idx2  <-  c(nothing1, data.fit2$time.idx)# BA
-# 
-# Cov1_1 <- c(res.pca$scores[,1],nothing1)
-# Cov1_2 <- c(nothing1, res.pca$scores[,1])
-# 
-# Cov2_1 <- c(res.pca$scores[,2],nothing1)
-# Cov2_2 <- c(nothing1, res.pca$scores[,2])
-# 
-# Cov3_1 <- c(res.pca$scores[,3],nothing1)
-# Cov3_2 <- c(nothing1, res.pca$scores[,3])
-# 
-# Cov4_1 <- c(res.pca$scores[,4],nothing1)
-# Cov4_2 <- c(nothing1, res.pca$scores[,4])
-# 
-# data=list(Y=outcome.matrix,
-#           Y1=outcome.matrix1,
-#           idarea1=i.spat.temp1, idarea2=i.spat.temp2, idarea.2 = i.spat2,
-#           time.idx1 = time.idx1,
-#           time.idx2 = time.idx2,
-#           Intercept1 = Intercept1,
-#           Intercept2 = Intercept2,
-#           Cov1_1 = Cov1_1,
-#           Cov1_2 = Cov1_2,
-# 
-#           Cov2_1 = Cov2_1,
-#           Cov2_2 = Cov2_2,
-# 
-#           Cov3_1 = Cov3_1,
-#           Cov3_2 = Cov3_2,
-# 
-#           Cov4_1 = Cov4_1,
-#           Cov4_2 = Cov4_2
-# )
-# 
-# 
-# formula0 <- Y1 ~ -1 + Intercept1 + f(idarea1, model = "bym2", graph = g,  group = time.idx1, control.group = list(model = "ar", order=1))+
-#                      Intercept2 + f(idarea2, model = "bym2", graph = g,  group = time.idx2, control.group = list(model = "ar", order=1))
-# f(idarea.2, model = "besag", graph = g )
-# f(Cov1_1, model='linear') +
-# f(Cov1_2, model='linear') +
-# f(Cov2_1, model='linear') +
-# f(Cov2_2, model='linear') +
-# f(Cov3_1, model='linear') +
-# f(Cov3_2, model='linear') +
-# f(Cov4_1, model='linear') +
-# f(Cov4_2, model='linear')
+t1 <- Sys.time()
+res1.1 <- inla(formula1.1,
+             family = c('poisson','binomial', 'gp'), data = data,  Ntrials=1,
+             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+             verbose=TRUE,
+             control.compute=list(config = TRUE),
+             control.family = list( list(), list(), list(control.link=list(quantile=0.5))),
+             control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
+summary(res1.1)
+
+hyper.bym2 = list (phi = list (
+  prior = "pc",
+  param = c(0.5 , 0.01) ,
+  initial = 0.8) ,
+  prec = list (
+    prior = "pc.prec",
+    param = c (6.5 , 0.9) ,
+    initial = 5))
+
+formula1.2 <- Y3 ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
+  Intercept2 +  f(idarea2, model='bym2',graph = g,group=time.idx2, hyper=hyper.bym2) + 
+  Intercept3 +  f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) +
+  f(score_3_grp, model='rw1', hyper = list(theta = list(prior="pc.prec", param=c(1,0.01))))
+
+
+t1 <- Sys.time()
+res1.2 <- inla(formula1.2,
+               family = c('poisson','binomial', 'gp'), data = data,  Ntrials=1,
+               control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+               verbose=TRUE,
+               control.compute=list(config = TRUE),
+               control.family = list( list(), list(), list(control.link=list(quantile=0.5))),
+               control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
+summary(res1.2)
+save(res1.2, file=file.path(dir.out,'Temp1.2.RData'))
 
 
 
-# t1 <- Sys.time()
-# res0 <- inla(formula0,
-#             family = c('poisson','Gaussian'), data = data,
-#             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1))),
-#             verbose=TRUE,
-#             control.compute=list(config = TRUE),
-#             control.fixed = list(expand.factor.strategy = 'inla'),
-#             control.inla=list(strategy='adaptive', int.strategy = 'eb')
-# )
-# t2 <- Sys.time()
-# print(t2-t1)
-# 
-
-# data.fit2$sqrt_ba_scale <- data.fit2$sqrt_ba/max(data.fit2$sqrt_ba)
-# formula0 <- sqrt_ba_scale ~  f(grid.idx, model = "bym2", graph = g, group = time.idx, control.group = list(model = 'rw1'))
-# 
-# t1 <- Sys.time()
-# res0 <- inla(formula0,
-#             family = c('beta'), data = data.fit2,control.family = list(beta.censor.value = 10^-4),
-#             control.predictor = list(compute = TRUE),
-#             verbose=TRUE,
-#             control.compute=list(config = TRUE),
-#             control.fixed = list(expand.factor.strategy = 'inla')
-# )
-# t2 <- Sys.time()
+formula1.3 <- Y.log ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
+  Intercept2 +  f(idarea2, model='bym2',graph = g,group=time.idx2, hyper=hyper.bym2) + 
+  f(score_2_grp, model='rw1',hyper = list(theta = list(prior="pc.prec", param=c(0.1,0.01))))+
+  Intercept3 +  f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) +
+  f(score_3_grp, model='rw1', hyper = list(theta = list(prior="pc.prec", param=c(1,0.01))))
 
 
-# print(t2-t1)
-# summary(res0)
-# idx.pred.pois <- 1:n1
-# idx.pred.ba <- (n1+1):(2*n1)
+t1 <- Sys.time()
+res1.3 <- inla(formula1.3,
+               family = c('poisson','binomial', 'gp'), data = data,  Ntrials=1,
+               control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+               verbose=TRUE,
+               control.compute=list(config = TRUE),
+               control.family = list( list(), list(), list(control.link=list(quantile=0.5))),
+               control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
+summary(res1.3)
+
+save(res1.3, file=file.path(dir.out,'Temp1.3.RData'))
+
+
+formula2 <- Y ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g)+ f(time.idx1, model='ar1') +
+  Intercept2 +  f(idarea2, model='bym2',graph = g) + f(time.idx2, model='ar1') +
+  Intercept3 +  f(idarea3,  copy='idarea2',fixed=F) + f(time.idx3, model='ar1') + f(i.cov, model=SPDE.Cov)
+
+
+t1 <- Sys.time()
+res2 <- inla(formula2,
+             family = c('poisson','binomial', 'gp'), data = inla.stack.data(all.stack),  Ntrials=1,
+             control.predictor = list(A=inla.stack.A(all.stack),compute=FALSE),
+             verbose=TRUE,
+             control.compute=list(config = TRUE),
+             control.family = list( list(), list(), list(control.link=list(quantile=0.5))),
+             control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
+summary(res2)
 
 
 
-post.pred.gamma <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba ){
-  pred.cnt <- list()
-  pred.ba <- list()
-  pred.z <- list()
-  set.seed(1234)
-  for(j in 1:nrow(data.fit2)){
-    pred.cnt[[j]] <- rep(NA, n.samples)
-    pred.z[[j]] <- rep(NA, n.samples)
-    pred.ba[[j]] <- rep(NA, n.samples)
-    print(j)
-    for (i in 1:n.samples){
-      eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
-      
-      eta.z <- samples[[i]]$latent[idx.pred.z,1]
-      p <- exp(eta.z)/(1 + exp(eta.z))
-      
-      
-      eta.ba <- samples[[i]]$latent[idx.pred.ba,1]
-      prec.ba <- samples[[i]]$hyperpar[1]
-      
-      lambda <- exp(eta.pois)
-      mu <- exp(eta.ba)
-      a <-  prec.ba
-      b <- mu / a 
-      
-      pred.cnt[[j]][i] <- rpois(1, lambda[j] )
-      
-      z <- rbinom(1, size=1, prob=p[j])
-      pred.z[[j]][[i]] <- z
-      if (z==1){
-        # pred.ba[[j]][i] <- rgamma(1, shape = a, scale = b)
-        pred.ba[[j]][i] <- rgamma(1, shape = a, scale = b[j])
-      }else{
-        pred.ba[[j]][i] <- 0
-      }
 
-    }
-  }
-  return(list('pred.ba'=pred.ba,'pred.cnt'=pred.cnt, 'pred.z'=pred.z))
-}
-
-post.pred.gaussian <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba ){
-  pred.cnt <- list()
-  pred.ba <- list()
-  pred.z <- list()
-  set.seed(1234)
-  for(j in 1:nrow(data.fit2)){
-    pred.cnt[[j]] <- rep(NA, n.samples)
-    pred.ba[[j]] <- rep(NA, n.samples)
-    pred.z[[j]] <- rep(NA, n.samples)
-    print(j)
-    for (i in 1:n.samples){
-      eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
-      eta.ba <- samples[[i]]$latent[idx.pred.ba,1]
-      prec.ba <- samples[[i]]$hyperpar[1]
-      
-      eta.z <- samples[[i]]$latent[idx.pred.z,1]
-      p <- exp(eta.z)/(1 + exp(eta.z))
-      
-      lambda <- exp(eta.pois)
-      mu <- eta.ba
-      sd <-  sqrt(1/prec.ba)
-      
-      pred.cnt[[j]][i] <- rpois(1, lambda[j] )
-      
-      
-      z <- rbinom(1, size=1, prob=p[j])
-      pred.z[[j]][[i]] <- z
-      if (z==1){
-        pred.ba[[j]][i] <- rnorm(1, mean=mu[j], sd= sd )
-      }else{
-        pred.ba[[j]][i] <- 0
-      }
-    }
-  }
-  return(list('pred.ba'=pred.ba,'pred.cnt'=pred.cnt,  'pred.z'=pred.z))
-}
-
-post.pred.gpd <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha ){
+post.pred.gpd.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha,n.samples=200 ){
   rgp = function(n, sigma, eta, alpha, xi = 0.001)
   {
     if (missing(sigma)) {
@@ -651,15 +579,12 @@ post.pred.gpd <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha
     }
     return (sigma / xi * (runif(n)^(-xi) -1.0))
   }
-  pred.cnt <- list()
-  pred.ba <- list()
-  pred.z <- list()
-  set.seed(1234)
-  for(j in 1:nrow(data.fit2)){
-    pred.cnt[[j]] <- rep(NA, n.samples)
-    pred.z[[j]] <- rep(NA, n.samples)
-    pred.ba[[j]] <- rep(NA, n.samples)
-    print(j)
+  t1 <- Sys.time()
+  res <- foreach(j = 1:nrow(data.fit2)) %dopar%{
+    set.seed(j)
+    pred.cnt <- rep(NA, n.samples)
+    pred.z <- rep(NA, n.samples)
+    pred.ba <- rep(NA, n.samples)
     for (i in 1:n.samples){
       eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
       
@@ -671,85 +596,90 @@ post.pred.gpd <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha
       xi <- samples[[i]]$hyperpar[1]
       
       lambda <- exp(eta.pois)
-      mu <- exp(eta.ba)
-      a <-  prec.ba
-      b <- mu / a 
       
-      pred.cnt[[j]][i] <- rpois(1, lambda[j] )
+      pred.cnt[i] <- rpois(1, lambda[j] )
       
       z <- rbinom(1, size=1, prob=p[j])
-      pred.z[[j]][[i]] <- z
+      pred.z[i] <- z
       if (z==1){
-        pred.ba[[j]][i] <- rgp(1,eta=eta.ba[j], alpha=alpha, xi=xi)
+        pred.ba[i] <- rgp(1,eta=eta.ba[j], alpha=alpha, xi=xi)
       }else{
-        pred.ba[[j]][i] <- 0
+        pred.ba[i] <- 0
       }
-      
     }
+    res.list <- list('pred.cnt'=pred.cnt, 'pred.z'=pred.z,'pred.ba'=pred.ba)
+    
   }
+  t2 <- Sys.time()
+  print(t2-t1)
+  pred.cnt <- list()
+  pred.z <- list()
+  pred.ba <- list()
+  for (i in 1:nrow(data.fit2)){
+    pred.cnt[[i]] <- res[[i]][['pred.cnt']]
+    pred.z[[i]] <- res[[i]][['pred.z']]
+    pred.ba[[i]] <- res[[i]][['pred.ba']]
+  }
+  
+  
   return(list('pred.ba'=pred.ba,'pred.cnt'=pred.cnt, 'pred.z'=pred.z))
 }
 
 
+library(doParallel)
+cl <- makeCluster(3)
+registerDoParallel(cl)
+
 n.samples = 200
 
+
+# idx.pred.pois <- 1:n1
+# idx.pred.z <- (n1+1):(2*n1)
+# idx.pred.ba <- (2*n1+1):(3*n1)
+# result <- res0
+# 
+# 
+# # idx.pred.pois <- 1:n1
+# # idx.pred.ba <- (n1+1):(2*n1)
+# # result <- res0
+# 
+# samples = inla.posterior.sample(n.samples, result = result, seed=1234)
+# 
+# 
+# # pred.sp <- post.pred.gamma(samples, idx.pred.pois, idx.pred.z, idx.pred.ba)
+# t1 <- Sys.time()
+# 
+# pred.sp <- post.pred.gpd.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha=0.5, n.samples=n.samples)
+# t2 <- Sys.time()
+# print(t2-t1)
+
+load(file=file.path(dir.out,'Temp1.3.RData'))
+load(file=file.path(dir.out,'Temp1.3_pred.sp.RData'))
+pred.cnt <- pred.sp$pred.cnt
+pred.ba <- pred.sp$pred.ba
+pred.z <- pred.sp$pred.z
+result <- res1.3
 
 idx.pred.pois <- 1:n1
 idx.pred.z <- (n1+1):(2*n1)
 idx.pred.ba <- (2*n1+1):(3*n1)
-result <- res4
-
-
-# idx.pred.pois <- 1:n1
-# idx.pred.ba <- (n1+1):(2*n1)
-# result <- res0
-
-samples = inla.posterior.sample(n.samples, result = result, seed=1234)
-
-# pred.sp <- post.pred.gamma(samples, idx.pred.pois, idx.pred.z, idx.pred.ba)
-pred.sp <- post.pred.gpd(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha=0.5)
-
-pred.cnt <- pred.sp$pred.cnt
-pred.ba <- pred.sp$pred.ba
-pred.z <- pred.sp$pred.z
 
 crps.val <- rep(NA, nrow(data.fit2))
 for (i in 1:nrow(data.fit2) ){
-  y <- (data.fit2$area_ha[i])^{1/3}
+  y <- log(data.fit2$area_ha[i])
   if (is.na(y)) y <- 0
   crps.val[i] <- crps_sample(
     y,
     pred.ba[[i]],
     method = "edf")
 }
-sum(crps.val)/length(crps.val)
 
-# samples1 = inla.posterior.sample(n.samples, result = res1, seed=1234)
-# pred.sp1 <- post.pred(samples1,idx.pred.pois,idx.pred.ba)
-# 
-# pred.cnt <- pred.sp1$pred.cnt
-# pred.ba <- pred.sp1$pred.ba
-# result <- res1
-# 
-# 
-# samples2 = inla.posterior.sample(n.samples, result = res2, seed=1234)
-# pred.sp2 <- post.pred(samples2,idx.pred.pois,idx.pred.ba)
-# 
-# pred.cnt <- pred.sp2$pred.cnt
-# pred.ba <- pred.sp2$pred.ba
-# result <- res2
+ins.idx <- 192*84
+round(sum(crps.val[1:ins.idx])/ins.idx,4)
+round(sum(crps.val[(ins.idx+1):nrow(data.fit2)])/(nrow(data.fit2)-ins.idx),4)
+round(sum(crps.val)/length(crps.val),4)
 
-
-
-# idx.pred.pois <- 1:n1
-# idx.pred.ba <- (n1+1):(2*n1)
-# samples0 = inla.posterior.sample(n.samples, result = res0, seed=1234)
-# pred.sp0 <- post.pred(samples0,idx.pred.pois,idx.pred.ba)
-# 
-# pred.cnt <- pred.sp0$pred.cnt
-# pred.ba <- pred.sp0$pred.ba
-# result <- res0
-
+data.fit2$crps <- crps.val
 ############## vector name in the samples$latent:#################################
 # Predicator:1, ... Predicator:172 means linear predicator of grid_1_1:9, 
 # grid_2_1:9,...grid_192_1:9
@@ -781,10 +711,6 @@ sum(crps.val)/length(crps.val)
 
 
 
-# summary(sapply(pred.cnt,mean))
-# summary(sapply(pred.ba,mean))
-# summary(sapply(pred.ba,quantile,0.975))
-# summary(sapply(pred.ba,quantile,0.025))
 
 data.fit2[,'z'] <- as.vector((data.fit2$y>0)+0)
 data.fit2[,'Latent_Effect_Cnt'] <- result$summary.fitted.values$mean[idx.pred.pois]
@@ -803,6 +729,9 @@ data.fit2[,'Estimated_BA'] <- sapply(pred.ba,mean)
 data.fit2[,'Lower_BA'] <- sapply(pred.ba,quantile,0.025)
 data.fit2[,'Upper_BA'] <- sapply(pred.ba,quantile,0.975)
 
+
+
+
 # data.fit2$BA_Residuals <- log(data.fit2$area_ha) - data.fit2$Estimated_BA
 # summary(data.fit2$BA_Residuals)
 
@@ -810,7 +739,7 @@ data.fit2[,'Upper_BA'] <- sapply(pred.ba,quantile,0.975)
 
 B2_sf <- st_as_sf(B2.merge)
 library(tidyr)
-B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:12))
+B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:108))
 B2_sf$time.idx <- as.integer(substring(B2_sf$y.time.idx, 3, 5))
 
 
@@ -821,7 +750,7 @@ B2_sf <- merge(
   by.y=c('grid.idx','time.idx'),
 )
 
-Year <- 1
+Year <- 6
 # data.fit2$year.idx <- 1
 # B2_sf$year.idx <- 1
 
@@ -901,8 +830,6 @@ ggplot() + geom_sf(data=B2_sf[B2_sf$year.idx==Year,],aes(fill = Estimated_BA),lw
         # axis.ticks = element_blank()
   )+csc.scale
 
-df.plot <- data.fit2
-df.plot[is.na(df.plot$area_ha),'area_ha'] <- 0
 
 lprange.scale <- max(
   abs((df.plot[df.plot$year.idx==Year, ]$area_ha)^{1/3}),na.rm=T
@@ -923,20 +850,20 @@ ggplot() + geom_sf(data=B2_sf[B2_sf$year.idx==Year,],aes(fill = area_ha2),lwd = 
   )+csc.scale
 
 df.plot <- data.fit2
-df.plot[is.na(df.plot$area_ha),'area_ha'] <- 0
-df.plot$pca_comp1 <- res.pca$scores[,1]
-df.plot$pca_comp2 <- res.pca$scores[,2]
-df.plot$pca_comp3 <- res.pca$scores[,3]
-df.plot$pca_comp4 <- res.pca$scores[,4]
-df.plot$pca_comp5 <- res.pca$scores[,5]
+df.plot[is.na(df.plot$area_ha),'area_ha'] <- 1
+df.plot[,'cover_ind'] <- df.plot[,'Upper_BA']>=log(df.plot[,'area_ha']) & df.plot[,'Lower_BA']<=log(df.plot[,'area_ha'])
 
+View(df.plot %>% group_by(year.idx) %>% summarize(coverate=mean(cover_ind)))
+View(df.plot[df.plot$area_ha>1,] %>% group_by(year.idx) %>% summarize(coverate=mean(cover_ind)))
 
-ggplot(df.plot[!is.na(df.plot$area_ha),], aes(x = grid.idx, y = (area_ha)^{1/3})) +
+View(df.plot %>% group_by(year.idx) %>% summarize(coverate=mean(crps)))
+
+ggplot(df.plot[!is.na(df.plot$area_ha)&df.plot$year.idx==8,], aes(x = grid.idx, y = log(area_ha))) +
   geom_point() +
   geom_line(aes(y = Estimated_BA), linetype = "dashed", color = "blue") +
   geom_line(aes(y = Upper_BA), linetype = "dashed", color = "red") +
   geom_line(aes(y = Lower_BA), linetype = "dashed", color = "red") +
-  labs(title = "Estimated Burn area with 95% credible band (Covariates)",
+  labs(title = "Estimated Burn area with 95% credible band in Year 2017 (with predicator) ",
        x = "Grid Index",
        y = "Transformed BA") +
   facet_wrap(~time.idx, dir = "h", ncol =3) +
@@ -946,13 +873,13 @@ df_long <- melt(df.plot, id.vars = "y")
 
 # Create scatter plots with facet_wrap
 
-var <- 'pca_comp3'
+var <- 'score_ba'
 lprange.scale <- max(
-  abs(df.plot[df.plot$year.idx==Year, var ]),na.rm=T
+  abs(df.plot[df.plot$year.idx==1, var ]),na.rm=T
 )*c(-1,1)
 
 csc.scale <- scale_fill_gradientn(colours = brewer.pal(3, "RdBu"), limits = lprange.scale)
-ggplot() + geom_sf(data=B2_sf[B2_sf$year.idx==Year,],aes(fill = .data[[var]]),lwd = 0.1) +
+ggplot() + geom_sf(data=B2_sf[B2_sf$year.idx==1,],aes(fill = .data[[var]]),lwd = 0.1) +
   # geom_sf(data=st_as_sf(district),alpha = 0)+
   facet_wrap(~time.idx, dir = "h", ncol =3) +
   ggtitle(paste(var,"in 2012")) +
@@ -962,11 +889,25 @@ ggplot() + geom_sf(data=B2_sf[B2_sf$year.idx==Year,],aes(fill = .data[[var]]),lw
         # axis.ticks = element_blank()
   )+csc.scale
 
-ggplot(df.plot[df.plot$area_ha>0,], aes(x = .data[[var]], y =(area_ha)^{1/3})) +
+ggplot(df.plot, aes(x = .data[[var]], y =(area_ha)^{1/3})) +
   geom_point() + 
   labs(x = var, y = "BA^{1/3}") +
   geom_smooth(method = 'lm', color = 'red', se = TRUE) +
   theme_minimal()
+
+ggplot(df.plot, aes(x = .data[[var]], y =z)) +
+  geom_point() + 
+  labs(x = var, y = "BA^{1/3}") +
+  theme_minimal()
+
+
+ggplot(df.plot[df.plot$area_ha>0 & df.plot$score<100 ,], aes(x = .data[[var]], y =(area_ha))) +
+  geom_point() + 
+  labs(x = var, y = "BA^{1/3}") +
+  geom_smooth(method = 'lm', color = 'red', se = TRUE) +
+  theme_minimal()
+
+
 
 ggplot(df.plot[df.plot$area_ha>0,], aes(x = pca_comp1, y =pca_comp3, color=(area_ha)^{1/3})) +
   geom_point() +
