@@ -7,3 +7,7 @@
 *.swp
 *.out
 *.pdf
+*.Rout.*
+/Shiny/*.RData
+/Shiny/dist*
+/Shiny/rsconnect/*
