@@ -202,43 +202,126 @@ for (var in covar.names ){
   data.fit2[,var] <- (data.fit2[,var]-mean(data.fit2[,var]))/sd(data.fit2[,var])
 }
 
-covar.names <- c(covar.names ,'LVegTyp','HVegTyp','month.idx','lon.grid','lat.grid')
-library(randomForest)
+covar.names <- c(covar.names ,#'LVegTyp','HVegTyp',
+                 'lon.grid','lat.grid',
+                 'month.idx')
 
 data.rf <- data.fit2[data.fit2$time.idx <= 84, c(covar.names,'area_ha','z')]
 # for (var in c('LVegTyp','HVegTyp','month.idx')){
 #   data.rf[,var] <- as.factor(data.rf[,var])
 # }
 
+library(xgboost)
+library(caret)
+library(pROC)
+data.rf$log_ba <- log(data.rf$area_ha)
+data.rf[is.na(data.rf$log_ba),'log_ba'] <- 0
+data.rf$ba.pow3 <- (data.rf$area_ha)^{1/3}
+data.rf[is.na(data.rf$ba.pow3),'ba.pow3'] <- 0
 
-data.rf$area_ha <- log(data.rf$area_ha)
-data.rf[is.na(data.rf$area_ha),'area_ha'] <- 0
-data.rf$z <- as.factor(data.rf$z)
 set.seed(100)
 
-train <- sample(nrow(data.rf), nrow(data.rf), replace = FALSE)
-TrainSet1 <- data.rf[train, c(covar.names,'z')]
+data.rf <- as.matrix(data.rf)
+TrainSet1 <- xgb.DMatrix(data=data.rf[, c(covar.names)],label=data.rf[, c('z')])
+# ValidSet1 <- xgb.DMatrix(data=data.rf[, c(covar.names)],label=data.rf[, c('z')])
+# 
+# watchlist1 <- list(train=TrainSet1, test=ValidSet1)
 
-model.z <- randomForest(z ~ ., data = TrainSet1, importance = TRUE)
-model.z
 
-weight <- ifelse( data.rf$z==1, 3, 1 )
-model.z1 <- randomForest(z ~ ., data = TrainSet1, weights=weight, importance = TRUE)
-model.z1
-data.rf$score_z <- as.vector(predict(model.z, data.rf,type = "prob")[,2])
+model.z <- xgb.train(data = TrainSet1,
+                   max.depth = 2, eta = 0.05, nthread = 3, nrounds = 6,
+                   scale_pos_weight=33,
+                   colsample_bytree = 0.7,
+                   min_child_weight = 5,
+                   subsample = 0.5,
+                   gamma = 0.5,
+                   # watchlist=watchlist1,
+                   eval_metric = "auc",
+                   objective = "binary:logistic"
+                   )
+
+# model.z <- xgb.train(data = TrainSet1,
+#                      max.depth = 2, eta = 0.004, nthread = 3, nrounds = 3,
+#                      scale_pos_weight=30,
+#                      colsample_bytree = 0.5,
+#                      min_child_weight = 5,
+#                      subsample = 0.5,
+#                      gamma = 0,
+#                      objective = "binary:logistic"
+# )
+
+# cutoff <- 0.5
+# train1.pred <- predict(model.z, TrainSet1)
+# confusionMatrix(data=as.factor(data.rf[train,'z']),
+#                 reference = as.factor(as.numeric(train1.pred>cutoff)),positive = "1")
+# 
+# valid1.pred <- predict(model.z, ValidSet1)
+# confusionMatrix(data=as.factor(data.rf[-train,'z']),
+#                 reference = as.factor(as.numeric(valid1.pred>cutoff)),positive = "1")
+
+data.rf <- cbind(data.rf,'score_z'= predict(model.z, data.rf[,covar.names]))
+
 
 # 1. Area under curve
+TrainSet2 <- xgb.DMatrix(data=data.rf[, c(covar.names,'score_z')],label=data.rf[, c('log_ba')])
+# ValidSet2 <- xgb.DMatrix(data=data.rf[, c(covar.names,'score_z')],label=data.rf[-train, c('log_ba')])
 
-
-TrainSet2 <- data.rf[train, c(covar.names, 'score_z','area_ha')]
-model.ba <- randomForest(area_ha ~ ., data = TrainSet2, importance = TRUE)
-model.ba
+# watchlist2 <- list(train=TrainSet2, test=ValidSet2)
+model.ba <- xgb.train(data = TrainSet2, 
+                      nthread = 3,
+                     max.depth = 2,  
+                     nrounds = 10,
+                     eta = 0.05,
+                     gamma = 0,
+                     scale_pos_weight = 1,
+                     colsample_bytree = 1,
+                     min_child_weight = 5,
+                     subsample = 0.9,
+                     objective = 'reg:tweedie')
 # # 
 # save(model1,model2, file=file.path(dir.out,'RF_model.RData'))
 
 # load(file=file.path(dir.out,'RF_model.RData'))
-data.fit2$score_z <-  as.vector(predict(model.z, data.fit2,type = "prob")[,2])
-data.fit2$score_ba <-  predict(model.ba, data.fit2)
+data.fit2$score_z <-   predict(model.z, as.matrix(data.fit2[,covar.names]))
+data.fit2$score_ba <-  predict(model.ba, as.matrix(data.fit2[,c(covar.names,'score_z')]))
+
+TrainSet2 <- xgb.DMatrix(data=data.rf[, c(covar.names)],label=data.rf[, c('log_ba')])
+model.ba1 <- xgb.train(data = TrainSet2, 
+                      nthread = 3,
+                      max.depth = 2,  
+                      nrounds = 10,
+                      eta = 0.05,
+                      gamma = 0,
+                      colsample_bytree = 1,
+                      min_child_weight = 5,
+                      subsample = 0.9,
+                      objective = 'reg:tweedie')
+data.rf <- cbind(data.rf,'score_ba'= predict(model.ba1, data.rf[,covar.names]))
+
+TrainSet1 <- xgb.DMatrix(data=data.rf[, c(covar.names,'score_ba')],label=data.rf[, c('z')])
+
+
+model.z1 <- xgb.train(data = TrainSet1,
+                     max.depth = 2, eta = 0.05, nthread = 3, nrounds = 6,
+                     scale_pos_weight=33,
+                     colsample_bytree = 0.7,
+                     min_child_weight = 5,
+                     subsample = 0.5,
+                     gamma = 0.5,
+                     # watchlist=watchlist1,
+                     eval_metric = "auc",
+                     objective = "binary:logistic"
+)
+
+data.fit2$score_ba <-  predict(model.ba1, as.matrix(data.fit2[,c(covar.names)]))
+data.fit2$score_z <-   predict(model.z1, as.matrix(data.fit2[,c(covar.names,'score_ba')]))
+
+
+
+
+auc(data.fit2[data.fit2$year.idx<=7,'z'], data.fit2[data.fit2$year.idx<=7,'score_z'], quiet = TRUE)
+auc(data.fit2[data.fit2$year.idx>7,'z'], data.fit2[data.fit2$year.idx>7,'score_z'], quiet = TRUE)
+
 
 
 for (var in c('score_ba','score_z') ){
@@ -453,10 +536,19 @@ data=list(Y.log=outcome.matrix.log,
           
 )
 
+hyper.bym2 = list (phi = list (
+  prior = "pc",
+  param = c(0.5 , 0.01) ,
+  initial = 0.8) ,
+  prec = list (
+    prior = "pc.prec",
+    param = c (6.5 , 0.9) ,
+    initial = 5))
 
-formula0 <- Y3 ~  -1  + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
+
+formula0 <- Y.log ~  -1  + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
   Intercept2 +  f(idarea2, model='bym2',graph = g, group=time.idx2) +
-  Intercept3 + f(idarea3,  copy='idarea2',fixed=F,group=time.idx3) 
+  Intercept3 + f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) 
 
 t1 <- Sys.time()
 res0 <- inla(formula0,
@@ -473,45 +565,20 @@ summary(res0)
 
 save(res0, file=file.path(dir.out,'Temp0.RData'))
 
-formula1.1 <- Y3 ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
+
+formula1.1 <- Y.log ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g) + f(time.idx1,model='iid')+
   
-  Intercept2 + f(idarea2, model='bym2',graph = g,group=time.idx2) + 
-  f(score_2, model='linear', mean.linear=1, prec.linear=1) +
+  Intercept2 +  
   
-  Intercept3 + f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) +
-  f(score_3, model='linear',mean.linear=1, prec.linear=1)
+  f(score_2_grp, model='rw1',hyper = list(theta = list(prior="pc.prec", param=c(0.1,0.1))))+
+  
+  Intercept3 +  
+  
+  f(score_3_grp, model='rw1', hyper = list(theta = list(prior="pc.prec", param=c(0.1,0.1))))
 
 
 t1 <- Sys.time()
 res1.1 <- inla(formula1.1,
-             family = c('poisson','binomial', 'gp'), data = data,  Ntrials=1,
-             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-             verbose=TRUE,
-             control.compute=list(config = TRUE),
-             control.family = list( list(), list(), list(control.link=list(quantile=0.5))),
-             control.fixed = list(expand.factor.strategy = 'inla')
-)
-t2 <- Sys.time()
-print(t2-t1)
-summary(res1.1)
-
-hyper.bym2 = list (phi = list (
-  prior = "pc",
-  param = c(0.5 , 0.01) ,
-  initial = 0.8) ,
-  prec = list (
-    prior = "pc.prec",
-    param = c (6.5 , 0.9) ,
-    initial = 5))
-
-formula1.2 <- Y3 ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
-  Intercept2 +  f(idarea2, model='bym2',graph = g,group=time.idx2, hyper=hyper.bym2) + 
-  Intercept3 +  f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) +
-  f(score_3_grp, model='rw1', hyper = list(theta = list(prior="pc.prec", param=c(1,0.01))))
-
-
-t1 <- Sys.time()
-res1.2 <- inla(formula1.2,
                family = c('poisson','binomial', 'gp'), data = data,  Ntrials=1,
                control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
                verbose=TRUE,
@@ -521,16 +588,19 @@ res1.2 <- inla(formula1.2,
 )
 t2 <- Sys.time()
 print(t2-t1)
-summary(res1.2)
-save(res1.2, file=file.path(dir.out,'Temp1.2.RData'))
+summary(res1.1)
+save(res1.1, file=file.path(dir.out,'Temp1.1.RData'))
+# load(file=file.path(dir.out,'Temp1.1.RData'))
 
 
-
+# decreasing u gives a stronger prior?
 formula1.3 <- Y.log ~  -1 + Intercept1 +  f(idarea1, model='bym2',graph = g, group=time.idx1) +
   Intercept2 +  f(idarea2, model='bym2',graph = g,group=time.idx2, hyper=hyper.bym2) + 
-  f(score_2_grp, model='rw1',hyper = list(theta = list(prior="pc.prec", param=c(0.1,0.01))))+
+  
+  
+  f(score_2_grp, model='rw1',hyper = list(theta = list(prior="pc.prec", param=c(0.1,0.1))))+
   Intercept3 +  f(idarea3,  copy='idarea2',fixed=F, group=time.idx3) +
-  f(score_3_grp, model='rw1', hyper = list(theta = list(prior="pc.prec", param=c(1,0.01))))
+  f(score_3_grp, model='rw1', hyper = list(theta = list(prior="pc.prec", param=c(0.7,0.5))))
 
 
 t1 <- Sys.time()
@@ -654,12 +724,15 @@ n.samples = 200
 # print(t2-t1)
 
 load(file=file.path(dir.out,'Temp1.3.RData'))
+
+
 load(file=file.path(dir.out,'Temp1.3_pred.sp.RData'))
 pred.cnt <- pred.sp$pred.cnt
 pred.ba <- pred.sp$pred.ba
 pred.z <- pred.sp$pred.z
 result <- res1.3
 
+n1 <- 192*108
 idx.pred.pois <- 1:n1
 idx.pred.z <- (n1+1):(2*n1)
 idx.pred.ba <- (2*n1+1):(3*n1)
@@ -858,12 +931,12 @@ View(df.plot[df.plot$area_ha>1,] %>% group_by(year.idx) %>% summarize(coverate=m
 
 View(df.plot %>% group_by(year.idx) %>% summarize(coverate=mean(crps)))
 
-ggplot(df.plot[!is.na(df.plot$area_ha)&df.plot$year.idx==8,], aes(x = grid.idx, y = log(area_ha))) +
+ggplot(df.plot[!is.na(df.plot$area_ha)&df.plot$year.idx==9,], aes(x = grid.idx, y = log(area_ha))) +
   geom_point() +
   geom_line(aes(y = Estimated_BA), linetype = "dashed", color = "blue") +
   geom_line(aes(y = Upper_BA), linetype = "dashed", color = "red") +
   geom_line(aes(y = Lower_BA), linetype = "dashed", color = "red") +
-  labs(title = "Estimated Burn area with 95% credible band in Year 2017 (with predicator) ",
+  labs(title = "Estimated Burn area with 95% credible band in Year 2020 (with predicator) ",
        x = "Grid Index",
        y = "Transformed BA") +
   facet_wrap(~time.idx, dir = "h", ncol =3) +

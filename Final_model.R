@@ -212,7 +212,7 @@ data.rf <- data.fit2[data.fit2$time.idx <= 84, c(covar.names,'y','area_ha','z')]
 # }
 
 library(xgboost)
-library(caret)
+# library(caret)
 library(pROC)
 data.rf$log_ba <- log(data.rf$area_ha)
 data.rf[is.na(data.rf$log_ba),'log_ba'] <- 0
@@ -396,28 +396,49 @@ data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0, 'score_ba'] <- predict(model.
 #   verbosity = 0
 # )
 
-#with coordiantes
+# #with coordiantes
+# params_cnt <- list(
+#   eta = 0.09,
+#   max_depth = 5,
+#   gamma = 0.8,
+#   colsample_bytree = 0.7,
+#   min_child_weight = 7,
+#   subsample = 1,
+#   nrounds = 70,
+#   objective = 'count:poisson',
+#   verbosity = 0
+# )
+# TrainSet3 <- xgb.DMatrix(data=as.matrix(data.rf[, c(covar.names,'score_z')]),label=data.rf[, c('y')])
+# 
+# set.seed(1234)
+# model.cnt <- xgb.train(params = params_cnt, data = TrainSet3, nrounds = params_cnt$nrounds)
+# data.rf$score_cnt <- kfold_cv_pred(data.rf[, c(covar.names,'score_z')], data.rf[, 'y'], params_cnt, 7)
+
+
+#with coordiantes hurdle score
 params_cnt <- list(
-  eta = 0.09,
-  max_depth = 5,
-  gamma = 0.8,
-  colsample_bytree = 0.7,
-  min_child_weight = 7,
+  eta = 0.08,
+  max_depth = 3,
+  gamma = 0.5,
+  colsample_bytree = 0.5,
+  min_child_weight = 2,
   subsample = 1,
-  nrounds = 70,
+  nrounds = 65,
   objective = 'count:poisson',
   verbosity = 0
 )
-TrainSet3 <- xgb.DMatrix(data=as.matrix(data.rf[, c(covar.names,'score_z')]),label=data.rf[, c('y')])
+
+data.rf$score_cnt <- kfold_cv_pred_1(data.rf[, c(covar.names)], data.rf[, 'y'], params_cnt, 7)
+
+
+TrainSet3 <- xgb.DMatrix(data=as.matrix(data.rf[data.rf$y>0, c(covar.names)]),label=data.rf[data.rf$y>0, c('y')])
 
 set.seed(1234)
 model.cnt <- xgb.train(params = params_cnt, data = TrainSet3, nrounds = params_cnt$nrounds)
-data.rf$score_cnt <- kfold_cv_pred(data.rf[, c(covar.names,'score_z')], data.rf[, 'y'], params_cnt, 7)
 
 
 data.fit2[data.fit2$time.idx <= 84, 'score_cnt'] <- data.rf$score_cnt
-data.fit2[data.fit2$time.idx > 84, 'score_cnt'] <- predict(model.cnt, as.matrix(data.fit2[data.fit2$time.idx > 84,c(covar.names,'score_z')]))
-
+data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0, 'score_cnt'] <- predict(model.cnt, as.matrix(data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0,c(covar.names)]))
 
 
 
@@ -434,8 +455,8 @@ sum((data.fit2[data.fit2$year.idx<=7 & data.fit2$y>0,'log_ba']-data.fit2[data.fi
 sum((data.fit2[data.fit2$year.idx>7 & data.fit2$y>0,'log_ba']-data.fit2[data.fit2$year.idx>7 & data.fit2$y>0,'score_ba'])^2)/sum(data.fit2$year.idx>7)
 
 
-sum((data.fit2[data.fit2$year.idx<=7,'y']-data.fit2[data.fit2$year.idx<=7,'score_cnt'])^2)/sum(data.fit2$year.idx<=7)
-sum((data.fit2[data.fit2$year.idx>7,'y']-data.fit2[data.fit2$year.idx>7,'score_cnt'])^2)/sum(data.fit2$year.idx>7)
+sum((data.fit2[data.fit2$year.idx<=7 & data.fit2$y>0,'y']-data.fit2[data.fit2$year.idx<=7 & data.fit2$y>0,'score_cnt'])^2)/sum(data.fit2$year.idx<=7)
+sum((data.fit2[data.fit2$year.idx>7 & data.fit2$y>0,'y']-data.fit2[data.fit2$year.idx>7 & data.fit2$y>0,'score_cnt'])^2)/sum(data.fit2$year.idx>7)
 
 
 
@@ -451,6 +472,7 @@ data.fit3 <- reshape(data.fit2[,c('grid.idx','time.idx','y')],
 
 B2.merge <- merge(B2, data.fit3, by = "grid.idx")
 
+save(B2.merge, file=file.path(dir.out, 'grid_cell_map.RData'))
 
 B2.adj <- poly2nb(B2)
 nb2INLA("map.adj", B2.adj)
@@ -467,7 +489,8 @@ data.fit2 <- data.fit2[order(data.fit2$time.idx),]
 
 z <- as.vector((data.fit2$y>0)+0)
 log.ba <- as.vector(ifelse(data.fit2$y>0, data.fit2$log_ba, NA))
-cnt = as.vector(data.fit2$y)
+# cnt = as.vector(data.fit2$y)
+cnt <- as.vector(ifelse(data.fit2$y>0, data.fit2$y, NA))
 # 
 
 #prepare for prediction
@@ -515,18 +538,18 @@ score_ba_grp[which(data.fit2$y>0)] <- inla.group(data.fit2[data.fit2$y>0,]$score
 score_3 <- c(nothing1, nothing2, data.fit2$score_ba)
 score_3_grp <- c(nothing1, nothing2, score_ba_grp)
 
-
+data.fit2[is.na(data.fit2$score_ba),'score_cnt'] <- 0
 # mesh_score_1 <- inla.mesh.1d(seq(0,2,by=0.25),boundary=c('dirichlet','free')) 
-mesh_score_1 <- inla.mesh.1d(seq(0.02,1.6,by=0.5),boundary=c('free','free')) 
+mesh_score_1 <- inla.mesh.1d(c(0.9,1.1,1.3,1.6,1.9),boundary=c('free','free')) 
 A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit2$score_cnt)
 spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1, 
-                                     prior.range = c(1, 0.05),
+                                     prior.range = c(0.3, 0.05),
                                      prior.sigma = c(1, 0.05))
 # spde_score_1 <-  inla.spde2.matern(mesh_score_1, constr = TRUE)
 
 spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
 
-mesh_score_2 <- inla.mesh.1d(seq(0.03, 0.9, by = 0.1),boundary=c('free','free'))
+mesh_score_2 <- inla.mesh.1d(c(0.1,0.2,0.4,0.6,0.8),boundary=c('free','free'))
 # mesh_score_2 <- inla.mesh.1d(seq(0, 1, by = 0.2),boundary=c('dirichlet','dirichlet'))
 A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit2$score_z)
 spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2, 
@@ -537,11 +560,11 @@ spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde
 
 
 data.fit2[is.na(data.fit2$score_ba),'score_ba'] <- 0
-mesh_score_3 <- inla.mesh.1d(seq(2.6, 7, by = 1),boundary=c('free','free'))
+mesh_score_3 <- inla.mesh.1d(c(3,4,5,6),boundary=c('free','free'))
 # mesh_score_3 <- inla.mesh.1d(seq(0, 7, by = 1),boundary=c('dirichlet','free'))
 A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit2$score_ba)
 spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3, 
-                                     prior.range = c(2, 0.05),
+                                     prior.range = c(0.1, 0.05),
                                      prior.sigma = c(1, 0.05))
 # spde_score_3 <-  inla.spde2.matern(mesh_score_3, constr = TRUE)
 spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
@@ -556,6 +579,9 @@ cnt.stack <- inla.stack(
   tag='cnt'
 )
 
+dim(cnt.stack$A)
+1 + 192 + 12 + ncol(A1) + length(table(score_cnt_grp))
+
 z.stack <- inla.stack(
   data= list(Y.log=cbind(NA,z,NA)),
   A <- list(1,1,1,A2,1),
@@ -564,6 +590,10 @@ z.stack <- inla.stack(
   tag='z'
 )
 
+dim(z.stack$A)
+1 + 192 + 12 + ncol(A2) + length(table(score_z_grp))
+
+
 ba.stack <- inla.stack(
   data= list(Y.log=cbind(NA,NA,log.ba)),
   A <- list(1,1,1, A3,1),
@@ -571,6 +601,9 @@ ba.stack <- inla.stack(
                 score_3_grp=score_ba_grp),
   tag='ba'
 )
+
+dim(ba.stack$A)
+1 + 192 + 12 + ncol(A3) + length(table(score_ba_grp))
 
 all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
 
@@ -601,7 +634,6 @@ data=list(Y.log=outcome.matrix.log,
           score_3 = score_3
 )
 
-library("splines")
 hyper.rw <-  list(prec = list(prior="loggamma",param=c(1,1)))
 # formula1 <- Y.log ~  -1  +
 #   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) + f(time.idx1, model='rw1') + ns(score_1, df=10)+
@@ -648,7 +680,7 @@ res1.1 <- inla(formula2,
 t2 <- Sys.time()
 print(t2-t1)
 summary(res1.1)
-
+save(res1.1, file=file.path(dir.out,'Final_Model_1.1.RData'))
 
 
 t1 <- Sys.time()
@@ -678,6 +710,7 @@ res2.1 <- inla(formula2,
 t2 <- Sys.time()
 print(t2-t1)
 summary(res2.1)
+save(res2.1, file=file.path(dir.out,'Final_Model_2.1.RData'))
 
 t1 <- Sys.time()
 res3 <- inla(formula1,
@@ -710,274 +743,52 @@ summary(res3.1)
 
 save(res3.1, file=file.path(dir.out,'Final_Model_3.1.RData'))
 
+# hurdle poisson and weibull
+t1 <- Sys.time()
+res3.2 <- inla(formula2,
+               family = c('poisson','binomial', 'weibull'), data = inla.stack.data(all.stack),  Ntrials=1,
+               control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+               verbose=TRUE,
+               control.compute=list(config = TRUE),
+               control.family = list( list(), list(), list()),
+               control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
+summary(res3.2)
 
-post.pred.gpd.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha,n.samples=200 ){
-  rgp = function(n, sigma, eta, alpha, xi = 0.001)
-  {
-    if (missing(sigma)) {
-      stopifnot(!missing(eta) && !missing(alpha))
-      sigma = exp(eta) * xi / ((1.0 - alpha)^(-xi) -1.0)
-    }
-    return (sigma / xi * (runif(n)^(-xi) -1.0))
-  }
-  t1 <- Sys.time()
-  res <- foreach(j = 1:nrow(data.fit2)) %dopar%{
-    set.seed(j)
-    pred.cnt <- rep(NA, n.samples)
-    pred.z <- rep(NA, n.samples)
-    pred.ba <- rep(NA, n.samples)
-    for (i in 1:n.samples){
-      eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
-      
-      eta.z <- samples[[i]]$latent[idx.pred.z,1]
-      p <- exp(eta.z)/(1 + exp(eta.z))
-      
-      
-      eta.ba <- samples[[i]]$latent[idx.pred.ba,1]
-      xi <- samples[[i]]$hyperpar[1]
-      
-      lambda <- exp(eta.pois)
-      
-      pred.cnt[i] <- rpois(1, lambda[j] )
-      
-      z <- rbinom(1, size=1, prob=p[j])
-      pred.z[i] <- z
-      if (z==1){
-        pred.ba[i] <- rgp(1,eta=eta.ba[j], alpha=alpha, xi=xi)
-      }else{
-        pred.ba[i] <- 0
-      }
-    }
-    res.list <- list('pred.cnt'=pred.cnt, 'pred.z'=pred.z,'pred.ba'=pred.ba)
-    
-  }
-  t2 <- Sys.time()
-  print(t2-t1)
-  pred.cnt <- list()
-  pred.z <- list()
-  pred.ba <- list()
-  for (i in 1:nrow(data.fit2)){
-    pred.cnt[[i]] <- res[[i]][['pred.cnt']]
-    pred.z[[i]] <- res[[i]][['pred.z']]
-    pred.ba[[i]] <- res[[i]][['pred.ba']]
-  }
-  
-  
-  return(list('pred.ba'=pred.ba,'pred.cnt'=pred.cnt, 'pred.z'=pred.z))
-}
+save(res3.2, file=file.path(dir.out,'Final_Model_3.2.RData'))
+
+load(file.path(dir.out,'Final_Model_3.2.RData'))
 
 
 
-post.pred.gamma.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba,n.samples=200 ){
-
-  t1 <- Sys.time()
-  res <- foreach(j = 1:nrow(data.fit2)) %dopar%{
-    set.seed(j)
-    pred.cnt <- rep(NA, n.samples)
-    pred.z <- rep(NA, n.samples)
-    pred.ba <- rep(NA, n.samples)
-    for (i in 1:n.samples){
-      eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
-      
-      eta.z <- samples[[i]]$latent[idx.pred.z,1]
-      p <- exp(eta.z)/(1 + exp(eta.z))
-      
-      
-      eta.ba <- samples[[i]]$latent[idx.pred.ba,1]
-      prec.par <- samples[[i]]$hyperpar[1]
-      
-      a = prec.par
-      b = eta.ba / a
-      
-      
-      lambda <- exp(eta.pois)
-      
-      pred.cnt[i] <- rpois(1, lambda[j] )
-      
-      z <- rbinom(1, size=1, prob=p[j])
-      pred.z[i] <- z
-      if (z==1){
-        pred.ba[i] <- rgamma(1, shape = a, scale = b[j])
-      }else{
-        pred.ba[i] <- 0
-      }
-    }
-    res.list <- list('pred.cnt'=pred.cnt, 'pred.z'=pred.z,'pred.ba'=pred.ba)
-    
-  }
-  t2 <- Sys.time()
-  print(t2-t1)
-  pred.cnt <- list()
-  pred.z <- list()
-  pred.ba <- list()
-  for (i in 1:nrow(data.fit2)){
-    pred.cnt[[i]] <- res[[i]][['pred.cnt']]
-    pred.z[[i]] <- res[[i]][['pred.z']]
-    pred.ba[[i]] <- res[[i]][['pred.ba']]
-  }
-  
-  
-  return(list('pred.ba'=pred.ba,'pred.cnt'=pred.cnt, 'pred.z'=pred.z))
-}
-
-
-post.pred.weibull.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba,n.samples=200 ){
-  t1 <- Sys.time()
-  res <- foreach(j = 1:nrow(data.fit2)) %dopar%{
-    set.seed(j)
-    pred.cnt <- rep(NA, n.samples)
-    pred.z <- rep(NA, n.samples)
-    pred.ba <- rep(NA, n.samples)
-    for (i in 1:n.samples){
-      eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
-      
-      eta.z <- samples[[i]]$latent[idx.pred.z,1]
-      p <- exp(eta.z)/(1 + exp(eta.z))
-      
-      
-      eta.ba <- samples[[i]]$latent[idx.pred.ba,1]
-      
-      alpha.ba <- samples[[i]]$hyperpar[1]
-      
-      lambda.ba = exp(eta.ba)
-      
-      
-      lambda <- exp(eta.pois)
-      
-      pred.cnt[i] <- rpois(1, lambda[j] )
-      
-      z <- rbinom(1, size=1, prob=p[j])
-      pred.z[i] <- z
-      if (z==1){
-        # pred.ba[i] <- rgamma(1, shape = a, scale = b[j])
-        pred.ba[i] <- rweibull(1, shape = alpha.ba, scale = lambda.ba[j]^(-1/alpha.ba))
-      }else{
-        pred.ba[i] <- 0
-      }
-    }
-    res.list <- list('pred.cnt'=pred.cnt, 'pred.z'=pred.z,'pred.ba'=pred.ba)
-    
-  }
-  t2 <- Sys.time()
-  print(t2-t1)
-  pred.cnt <- list()
-  pred.z <- list()
-  pred.ba <- list()
-  for (i in 1:nrow(data.fit2)){
-    pred.cnt[[i]] <- res[[i]][['pred.cnt']]
-    pred.z[[i]] <- res[[i]][['pred.z']]
-    pred.ba[[i]] <- res[[i]][['pred.ba']]
-  }
-  
-  
-  return(list('pred.ba'=pred.ba,'pred.cnt'=pred.cnt, 'pred.z'=pred.z))
-}
-
-
-library(doParallel)
-cl <- makeCluster(3)
-registerDoParallel(cl)
-
-n.samples = 200
 
 n1 <- 192*108
 
 
-# idx.pred.pois <- 1:n1
-# idx.pred.z <- (n1+1):(2*n1)
-# idx.pred.ba <- (2*n1+1):(3*n1)
-# result <- res0
-# 
-# 
-# # idx.pred.pois <- 1:n1
-# # idx.pred.ba <- (n1+1):(2*n1)
-# result <- res0
-# 
-samples = inla.posterior.sample(1, result = res3.1, seed=1234)
 
-idx.pred.pois <- 1:n1
-idx.pred.z <- (n1+1):(2*n1)
-idx.pred.ba <- (2*n1+1):(3*n1)
-idx.time.idx1 <- (3*n1+1):(3*n1+12)
-
-idx.idarea2.u <- (3*n1+13):(3*n1+204)
-idx.idarea2.v <- (3*n1+205):(3*n1+396)
-
-idx.time.idx2 <- (3*n1+ 397):(3*n1+408)
-idx.time.idx3 <- (3*n1+ 409):(3*n1+420)
-
-idx.idarea1.u <- (3*n1+421):(3*n1+612)
-idx.idarea1.v <- (3*n1+613):(3*n1+804)
-
-idx.idarea3.u <- (3*n1+805):(3*n1+996)
-idx.idarea3.v <- (3*n1+997):(3*n1+1188)
-
-idx.Intercept1 <- 3*n1+1189
-idx.ns_score1 <- (3*n1+1190):(3*n1+1199)
-
-idx.Intercept2 <- 3*n1+1200
-idx.ns_score2 <- (3*n1+1201):(3*n1+1210)
-
-idx.Intercept3 <- 3*n1+1211
-idx.ns_score3 <- (3*n1+1212):(3*n1+1221)
-
-
-effect <- c()
-for (i in 1:n.samples){
-  effect <- rbind(effect, samples[[i]]$latent[idx.ns_score1,])
-}
-
-attr(ns(score_1, df = 10), "knots")
-attr(ns(score_1, df = 10), "Boundary.knots")
-
-plot(attr(ns(score_2, df = 10), "knots"), colMeans(effect),type='l',ylim=c(-10,10))
-lines(1:10, apply(effect,2,quantile,0.975),col='red')
-lines(1:10, apply(effect,2,quantile,0.025),col='red')
-
-
-
-summary((res3.1$summary.fitted.values[idx.pred.pois,'mean']-data.fit2$y)[which(data.fit2$y>0)])
-summary((res3$summary.fitted.values[idx.pred.pois,'mean']-data.fit2$y)[which(data.fit2$y>0)])
-
-
-
-summary(res3$summary.fitted.values[idx.pred.pois,'mean'])
-
-set.seed(123)
-test <- rnorm(100)  # Generate some normally distributed data
-
-# Fit the natural spline with df = 10
-spline_fit <- ns(test, df = 10)
-
-# Extract the internal knots
-internal_knots <- attr(spline_fit, "knots")
-
-# Display the internal knots
-print(internal_knots)
-
-# Plot the histogram of the data
-hist(score_1, breaks = 20, main = "Data Distribution and Knot Placement", xlab = "score_1", col = "lightblue", border = "white")
-
-# Add vertical lines for the internal knots
-abline(v = internal_knots, col = "red", lwd = 2, lty = 2)
-legend("topright", legend = "Internal Knots", col = "red", lty = 2, lwd = 2)
-
-
-
-
-n <- 10
-d <- data.frame(x = 1:n, y =  colMeans(effect))
-ggplot(d,aes(x,y)) + geom_point() + 
-  geom_line(data=data.frame(spline(d, n=100*n)))
-
-# load(file=file.path(dir.out,'Final_Model_2.RData'))
-
-
-load(file=file.path(dir.out,'Final_Model_3.1_pred.sp.RData'))
+# load(file=file.path(dir.out,'Final_Model_3.2_pred.sp.RData'))
+load(file=file.path(dir.out,'Final_Model_3.2_pred.sp_1000.RData'))
 pred.cnt <- pred.sp$pred.cnt
 pred.ba <- pred.sp$pred.ba
 pred.z <- pred.sp$pred.z
-# result <- res1
+
+pred.cnt.weibull <- pred.sp$pred.cnt
+pred.ba.weibull <- pred.sp$pred.ba
+pred.z.weibull <- pred.sp$pred.z
+
+load(file=file.path(dir.out,'Final_Model_2.1_pred.sp.RData'))
+pred.cnt.gpd <- pred.sp$pred.cnt
+pred.ba.gpd <- pred.sp$pred.ba
+pred.z.gpd <- pred.sp$pred.z
+
+load(file=file.path(dir.out,'Final_Model_1.1_pred.sp.RData'))
+pred.cnt.gamma <- pred.sp$pred.cnt
+pred.ba.gamma <- pred.sp$pred.ba
+pred.z.gamma <- pred.sp$pred.z
+
+
 
 n1 <- 192*108
 idx.pred.pois <- 1:n1
@@ -1015,8 +826,186 @@ round(sum(crps.cnt[(ins.idx+1):nrow(data.fit2)])/(nrow(data.fit2)-ins.idx),4)
 round(sum(crps.cnt)/length(crps.cnt),4)
 
 
+eta.z <- res3.2$summary.linear.predictor[idx.pred.z,1]
+
+pred.z.prob <- exp(eta.z)/(1 + exp(eta.z))
 
 
+A<- verify(data.fit2$z, pred.z.prob, frcst.type = "prob", obs.type = "binary")
+reliability.plot(A, titl = "Alternative plot")
+
+leq.u <- function(x, u){
+  return(sum(x<=u))
+}
+eq.u <- function(x,u){
+  return(sum(x==u))
+}
+bet.u <- function(x,u){
+  return(sum(x>=u[1] & x<u[2]))
+}
+
+u.cnt <- c(0,1,2,3,4,5,9)
+pred.cnt.weibull.prob <- rep(NA,length(u.cnt)-1)
+pred.cnt.gamma.prob <- rep(NA,length(u.cnt)-1)
+pred.cnt.gpd.prob <- rep(NA,length(u.cnt)-1)
+obs.cnt.prob <- rep(NA,length(u.cnt)-1)
+u.cnt <- c(0,1,2,3,4,5,9)
+u.cnt.label <- c('[0,1)','[1,2)', '[2,3)', '[3,4)','[4,5)','[5,+infty)')
+for (i in 1:(length(u.cnt)-1)){
+  pred.cnt.weibull.prob[i] <- sum(sapply(pred.cnt.weibull, bet.u, u.cnt[i:(i+1)]))/200/length(pred.cnt.weibull)
+  pred.cnt.gamma.prob[i] <- sum(sapply(pred.cnt.gamma, bet.u, u.cnt[i:(i+1)]))/200/length(pred.cnt.gamma)
+  pred.cnt.gpd.prob[i] <- sum(sapply(pred.cnt.gpd, bet.u, u.cnt[i:(i+1)]))/200/length(pred.cnt.gpd)
+  obs.cnt.prob[i] <- sum(bet.u(data.fit2$y, u.cnt[i:(i+1)]))/nrow(data.fit2)
+}
+plot(log(pred.cnt.prob),log(obs.cnt.prob))
+abline(a=0,b=1)
+
+df.realibity.cnt <- data.frame('pred.cnt.prob'=c(pred.cnt.weibull.prob, pred.cnt.gamma.prob,pred.cnt.gpd.prob),
+                               'obs.cnt.prob'=rep(obs.cnt.prob,3),
+                               'model' = rep(c('weibull','gamma','gpd'),each=length(obs.cnt.prob)),
+                               'cnt'=rep(u.cnt.label,3))
+
+cc.cnt <- scales::seq_gradient_pal("#FABC3F", "#E85C0D", "Lab")(seq(0,1,length.out=length(u.cnt.label)))
+
+ggplot(df.realibity.cnt[df.realibity.cnt$model=='weibull',], aes(x=log(pred.cnt.prob),y=log(obs.cnt.prob), color=cnt)) + 
+  geom_point(size=2.5, shape=17)+
+  # geom_line(group=1,color='black')+
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  scale_color_manual(values = cc.cnt)  
+
+ggplot(df.realibity.cnt, aes(x=cnt,y=(pred.cnt.prob)-(obs.cnt.prob),color=model,group = model)) + 
+  geom_point(size=2.5, shape=17)+
+  geom_line(alpha=0.5)
+
+
+cnt.weibull.unlist <- unlist(pred.cnt.weibull)
+cnt.gamma.unlist <- unlist(pred.cnt.gamma)
+cnt.gpd.unlist <- unlist(pred.cnt.gpd)
+
+
+df.sharp.cnt.weibull <- as.data.frame(table(cnt.weibull.unlist[cnt.weibull.unlist>0]))
+df.sharp.cnt.weibull$model <- 'weibull'
+
+df.sharp.cnt.gamma <- as.data.frame(table(cnt.gamma.unlist[cnt.gamma.unlist>0]))
+df.sharp.cnt.gamma$model <- 'gamma'
+
+df.sharp.cnt.gpd <- as.data.frame(table(cnt.gpd.unlist[cnt.gpd.unlist>0]))
+df.sharp.cnt.gpd$model <- 'gpd'
+
+df.sharp.cnt <- rbind(df.sharp.cnt.weibull,df.sharp.cnt.gamma,df.sharp.cnt.gpd)
+colnames(df.sharp.cnt) <- c('cnt','freq','model')
+
+ggplot(data=df.sharp.cnt, aes(x=cnt, y=freq, fill=model)) +
+  geom_bar(stat="identity",position=position_dodge())
+
+ggplot(data=df.sharp.cnt[df.sharp.cnt$freq<200,], aes(x=cnt, y=freq, fill=model)) +
+  geom_bar(stat="identity",position=position_dodge())
+
+u.ba <- c(1,seq(10,100,10),150,200,250,300,400,500,1000,1500,2000,5000,10000,20000,30000,40000,100000)
+u.log.ba <- c(0,1,log(u.ba)[-1]) 
+u.ba.label <- as.factor(c('[0,1)','[1,10)', '[10,20)', '[20,30)', '[30,40)','[40,50)',
+                '[50,60)','[60,70)','[70,80)','[80,90)','[90,100)',
+                '[100,150)','[150,200)','[200,250)','[250,300)',
+                '[300,400)','[400,500)','[500,1000)','[1000,1500)',
+                '[1500,2000)','[2000,5000)','[5000,10000)','[10000,20000)',
+                '[20000,30000)','[30000,40000)','[40000,+infty)'))
+levels(u.ba.label) <- c('[0,1)','[1,10)', '[10,20)', '[20,30)', '[30,40)','[40,50)',
+                        '[50,60)','[60,70)','[70,80)','[80,90)','[90,100)',
+                        '[100,150)','[150,200)','[200,250)','[250,300)',
+                        '[300,400)','[400,500)','[500,1000)','[1000,1500)',
+                        '[1500,2000)','[2000,5000)','[5000,10000)','[10000,20000)',
+                        '[20000,30000)','[30000,40000)','[40000,+infty)')
+pred.ba.weibull.prob <- rep(NA, length(u.log.ba)-1 )
+pred.ba.gamma.prob <- rep(NA, length(u.log.ba)-1 )
+pred.ba.gpd.prob <- rep(NA, length(u.log.ba)-1 )
+obs.ba.prob <- rep(NA, length(u.log.ba)-1 )
+for (i in 1:(length(u.log.ba)-1)){
+  pred.ba.weibull.prob[i] <- sum(sapply(pred.ba.weibull, bet.u, u.log.ba[i:(i+1)]))/200/length(pred.ba.weibull)
+  pred.ba.gamma.prob[i] <- sum(sapply(pred.ba.gamma, bet.u, u.log.ba[i:(i+1)]))/200/length(pred.ba.gamma)
+  pred.ba.gpd.prob[i] <- sum(sapply(pred.ba.gpd, bet.u, u.log.ba[i:(i+1)]))/200/length(pred.ba.gpd)
+  obs.ba.prob[i] <- sum(bet.u(data.fit2$log_ba, u.log.ba[i:(i+1)]))/nrow(data.fit2)
+}
+  
+plot(log(pred.ba.prob),log(obs.ba.prob))
+abline(a=0,b=1)
+
+
+cc.ba <- scales::seq_gradient_pal("#FABC3F", "#E85C0D", "Lab")(seq(0,1,length.out=length(u.ba.label)))
+
+
+df.realibity.ba <- data.frame('pred.ba.prob'=c(pred.ba.weibull.prob, pred.ba.gamma.prob,pred.ba.gpd.prob),
+                              'model' = rep(c('weibull','gamma','gpd'),each=length(obs.ba.prob)),
+                              'obs.ba.prob'=rep(obs.ba.prob,3),
+                              'ba'=u.ba.label)
+
+ggplot(df.realibity.ba[df.realibity.ba$model=='weibull',], aes(x=log(pred.ba.prob),y=log(obs.ba.prob), color=ba)) + 
+  geom_point(size=2.5, shape=17)+
+  # geom_line(group=1,color='black')+
+  xlim(c(-11,0))+
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  scale_color_manual(values = cc.ba)  
+
+
+ggplot(df.realibity.ba, aes(x=ba,y=(pred.ba.prob)-(obs.ba.prob))) + 
+  geom_point(size=2.5, shape=17)+
+  geom_line(group=1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+  # geom_line(group=1,color='black')+
+  # geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") 
+
+ggplot(df.realibity.ba, aes(x=ba,y=(pred.ba.prob)-(obs.ba.prob),color=model,group = model)) + 
+  geom_point(size=2.5, shape=17)+
+  geom_line(alpha=0.5)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+
+
+ggplot(df.realibity.ba, aes(x=cnt,y=pred.ba.prob)) + 
+  geom_bar(stat="identity")
+
+ggplot(df.realibity.ba[df.realibity.ba$cnt!='[0,1)',], aes(x=cnt,y=pred.ba.prob)) + 
+  geom_bar(stat="identity")
+
+
+
+
+ba.weibull.unlist <- unlist(pred.ba.weibull)
+ba.gamma.unlist <- unlist(pred.ba.gamma)
+ba.gpd.unlist <- unlist(pred.ba.gpd)
+
+
+df.sharp.ba.weibull <- data.frame('log.ba'=ba.weibull.unlist[ba.weibull.unlist>0])
+df.sharp.ba.weibull$model <- 'weibull'
+
+df.sharp.ba.gamma <- data.frame('log.ba'=ba.gamma.unlist[ba.gamma.unlist>0])
+df.sharp.ba.gamma$model <- 'gamma'
+
+df.sharp.ba.gpd <- data.frame('log.ba'=ba.gpd.unlist[ba.gpd.unlist>0])
+df.sharp.ba.gpd$model <- 'gpd'
+
+df.sharp.ba <- rbind(df.sharp.ba.weibull,df.sharp.ba.gamma,df.sharp.ba.gpd)
+
+ggplot(df.sharp.ba, aes(x=model, y=log.ba, fill=model)) + 
+  geom_boxplot() 
+
+
+u.z <- seq(0,1,0.1)
+pred.z.prob <- rep(NA,length(u.z)-1)
+obs.z.prob <- rep(NA,length(u.z)-1)
+
+for (i in 1:length(u.z)-1){
+  pred.z.prob[i] <- sum(sapply(pred.z, bet.u, u.z[i:(i+1)]))/200/length(pred.z)
+  obs.z.prob[i] <- sum(bet.u(data.fit2$z, u.z[i:(i+1)]))/nrow(data.fit2)
+}
+plot(pred.z.prob,(obs.z.prob))
+abline(a=0,b=1)
+
+plot(0:9, (obs.cnt.prob)-(pred.cnt.prob),type='l')
+plot(0:9, log(obs.cnt.prob)/log(pred.cnt.prob),type='l')
+
+
+  
 data.fit2[,'Estimated_Lambda'] <- sapply(pred.cnt,mean)
 data.fit2$Lower_CNT <- sapply(pred.cnt,quantile,0.025)
 data.fit2$Upper_CNT <- sapply(pred.cnt,quantile,0.975)
@@ -1050,16 +1039,19 @@ dist$NL_NAME_1 <- as.factor(iconv(as.character(dist$NL_NAME_1), "UTF-8"))
 dist$VARNAME_1 <- as.factor(iconv(as.character(dist$VARNAME_1), "UTF-8"))
 dist=dist[dist$NAME_1!="Açores",]
 dist=dist[dist$NAME_1!="Madeira",]
-
+sf_districts <- st_as_sf(dist)
 
 grid.cell.coord <- st_as_sf(data.fit2, coords = c("lon.grid", "lat.grid"), crs = 4326)
 
 # merged_sf <- st_join(grid.cell.coord, sf_districts[,'NAME_1'], join = st_within)
 merged_sf1 <- st_join(grid.cell.coord, sf_districts[,'NAME_1'], join = st_nearest_feature)
 
-merged_sf1 %>% group_by(NAME_1) %>% summarize(n_cnt = sum(y))
+merged_sf1 %>% group_by(NAME_1) %>% summarize(n_cnt = sum(y)) %>% arrange(desc(n_cnt), ascending=F)
+
+merged_sf1 %>% group_by(NAME_1) %>% summarize(n_ba = sum(log_ba)) %>% arrange(desc(n_ba), ascending=F)
 
 
+merged_sf1 %>% group_by(month.idx) %>% summarize(n_cnt = sum(y))
 
 
 #----------------------boxplot of CNT/BA in single district --------------
@@ -1068,9 +1060,19 @@ ggplot() +geom_sf(data=merged_sf1, aes(fill=NAME_1,col=NAME_1)) +
 
 
 dist.name <- 'Castelo Branco'
+# dist.name <- 'Guarda'
+# dist.name <- 'Vila Real'
 joint.post.sp <- function(x) Reduce("+", x)
-df.dist <- data.frame(month=rep(1:108, each=200))
+df.dist <- data.frame(month=rep(1:108, each=length(pred.cnt[[1]])))
+df.dist$year_label <- 2012 + (df.dist$month-1)%/%12
+df.dist$month_label <- sprintf("%02d", (df.dist$month-1)%%12+1)
+df.dist$time_label <- paste(df.dist$year_label ,df.dist$month_label  ,sep='_')
+
 df.boxplot.true <- data.frame(month=1:108, cnt=rep(NA, 108), log.ba= rep(NA,108))
+df.boxplot.true$year_label <- 2012 + (df.boxplot.true$month-1)%/%12
+df.boxplot.true$month_label <- sprintf("%02d", (df.boxplot.true$month-1)%%12+1)
+df.boxplot.true$time_label <- paste(df.boxplot.true$year_label ,df.boxplot.true$month_label  ,sep='_')
+
 for (t in 1:108){
   idx <- which(merged_sf1$NAME_1==dist.name & merged_sf1$time.idx==t)
   cnt.true <- sum(data.fit2[idx,'y'])
@@ -1084,37 +1086,361 @@ for (t in 1:108){
   df.dist[df.dist$month==t,'sample_ba'] <- pred.ba.dist
 }
 
-
-ggplot(df.dist[df.dist$month>=85,], aes(x = factor(month), y = sample_ba)) +
+ggplot(df.dist[df.dist$month>=85,], aes(x = factor(time_label), y = sample_cnt)) +
   geom_boxplot() + 
-  geom_line(data=df.boxplot.true[df.boxplot.true$month>=85,], aes(x=factor(month),y=log.ba,group = 1), col='red',linewidth=1)+
-  labs(x = "Month", y = "Posterior Predictive Sample", title = "Posterior Predictive Samples over Time") +
+  geom_line(data=df.boxplot.true[df.boxplot.true$month>=85,], aes(x=factor(time_label),y=cnt,group = 1), col='red',linewidth=1)+
+  labs(x = "Time", y = "fire count", title = paste("Predictive Total Fire Count in", dist.name,"During 2019-2020", sep=' ')) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))  # Rotate x-axis labels for clarity
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.x = element_blank())  # Rotate x-axis labels for clarity+
 
 
-ggplot(df.dist[df.dist$month>=85,], aes(x = factor(month), y = sample_cnt)) +
+ggplot(df.dist[df.dist$month>=85,], aes(x = factor(time_label), y = sample_ba)) +
   geom_boxplot() + 
-  geom_line(data=df.boxplot.true[df.boxplot.true$month>=85,], aes(x=factor(month),y=cnt,group = 1), col='red',linewidth=1)+
-  labs(x = "Month", y = "Posterior Predictive Sample", title = "Posterior Predictive Samples over Time") +
+  geom_line(data=df.boxplot.true[df.boxplot.true$month>=85,], aes(x=factor(time_label),y=log.ba,group = 1), col='red',linewidth=1)+
+  labs(x = "Time", y = "log burn area", title = paste("Predictive Total Burn Area in", dist.name,"During 2019-2020", sep=' ')) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))  # Rotate x-axis labels for clarity
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.x = element_blank())  # Rotate x-axis labels for clarity+
 
 
-ggplot(df.dist[df.dist$month<=84  & df.dist$month>=61 ,], aes(x = factor(month), y = sample_ba)) +
-  geom_boxplot() + 
-  geom_line(data=df.boxplot.true[df.boxplot.true$month<=84 & df.boxplot.true$month>=61,], aes(x=factor(month),y=log.ba,group = 1), col='red',linewidth=1)+
-  labs(x = "Month", y = "Posterior Predictive Sample", title = "Posterior Predictive Samples over Time") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))  # Rotate x-axis labels for clarity
 
 
-ggplot(df.dist[df.dist$month<=84  & df.dist$month>=61,], aes(x = factor(month), y = sample_cnt)) +
-  geom_boxplot() + 
-  geom_line(data=df.boxplot.true[df.boxplot.true$month<=84 & df.boxplot.true$month>=61,], aes(x=factor(month),y=cnt,group = 1), col='red',linewidth=1)+
-  labs(x = "Month", y = "Posterior Predictive Sample", title = "Posterior Predictive Samples over Time") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))  # Rotate x-axis labels for clarity
+# 
+# ggplot(df.dist[df.dist$month<=84  & df.dist$month>=61 ,], aes(x = factor(month), y = sample_ba)) +
+#   geom_boxplot() + 
+#   geom_line(data=df.boxplot.true[df.boxplot.true$month<=84 & df.boxplot.true$month>=61,], aes(x=factor(month),y=log.ba,group = 1), col='red',linewidth=1)+
+#   labs(x = "Month", y = "Posterior Predictive Sample", title = "Posterior Predictive Samples over Time") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))  # Rotate x-axis labels for clarity
+# 
+# 
+# ggplot(df.dist[df.dist$month<=84  & df.dist$month>=61,], aes(x = factor(month), y = sample_cnt)) +
+#   geom_boxplot() + 
+#   geom_line(data=df.boxplot.true[df.boxplot.true$month<=84 & df.boxplot.true$month>=61,], aes(x=factor(month),y=cnt,group = 1), col='red',linewidth=1)+
+#   labs(x = "Month", y = "Posterior Predictive Sample", title = "Posterior Predictive Samples over Time") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))  # Rotate x-axis labels for clarity
+
+#----------------------boxplot of CNT/BA in single month --------------
+
+
+fire.in.month <- st_drop_geometry(merged_sf1) %>% group_by(NAME_1, time.idx) %>% 
+             summarize(cnt.true = sum(y),
+                       ba.true = sum(log_ba),
+                       )
+pred.in.month <- c()
+for (i in 1:nrow(fire.in.month)){
+  
+  idx <- which(merged_sf1$NAME_1==as.character(fire.in.month[i,]$NAME_1) & merged_sf1$time.idx==fire.in.month[i,]$time.idx)
+  pred.cnt.dist <- joint.post.sp(pred.cnt[idx])
+  pred.ba.dist <- joint.post.sp(pred.ba[idx])
+  
+  pred.in.month <- rbind(pred.in.month,fire.in.month[i,] %>% 
+    mutate(cnt.pred = quantile(pred.cnt.dist,0.5),
+           ba.pred = quantile(pred.ba.dist,0.5),
+           
+           cnt.upp = quantile(pred.cnt.dist,0.975),
+           ba.upp = quantile(pred.ba.dist,0.975),
+           
+           cnt.low = quantile(pred.cnt.dist,0.025),
+           ba.low = quantile(pred.ba.dist,0.025)
+  
+           ) 
+  )
+}
+
+
+pred.in.month.1 <- merge(sf_districts[,'NAME_1'],pred.in.month,  by='NAME_1')
+
+
+st_drop_geometry(pred.in.month)
+
+year <- 2019
+month <- 8
+idx <- 12*(year-2012) + month
+
+
+lprange.scale.cnt <- c(0, max(pred.in.month[pred.in.month$time.idx>=85,c('cnt.true','cnt.pred')]))
+
+csc.scale.cnt <- scale_fill_gradient( low = "#F7F7F7", high = "#E4003A", limits = lprange.scale.cnt)
+
+ggplot() + 
+  geom_sf(data=pred.in.month.1[pred.in.month.1$time.idx==idx,],aes(fill = cnt.pred),lwd = 0.1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.x = element_blank())+csc.scale.cnt+
+  labs(title=paste('PM of Fire Count in', 'Aug', year,sep=' '))
+  
+
+ggplot() + geom_sf(data=pred.in.month.1[pred.in.month.1$time.idx==idx,],aes(fill = cnt.upp),lwd = 0.1)
+ggplot() + geom_sf(data=pred.in.month.1[pred.in.month.1$time.idx==idx,],aes(fill = cnt.low),lwd = 0.1)
+
+
+ggplot() + 
+  geom_sf(data=pred.in.month.1[pred.in.month.1$time.idx==idx,],aes(fill = cnt.true),lwd = 0.1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.x = element_blank())+csc.scale.cnt+
+  labs(title='Actual Fire Count in Aug 2019')
+
+
+
+lprange.scale.ba <- c(0, max(pred.in.month[pred.in.month$time.idx>=85,c('ba.true','ba.pred')]))
+
+csc.scale.ba <- scale_fill_gradient( low = "#F7F7F7", high = "#E4003A", limits = lprange.scale.ba)
+
+ggplot() + 
+  geom_sf(data=pred.in.month.1[pred.in.month.1$time.idx==idx,],aes(fill = ba.pred),lwd = 0.1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.x = element_blank())+csc.scale.ba+
+  labs(title='PM of Burn Area in Aug 2019')
+
+ggplot() +
+  geom_sf(data=pred.in.month.1[pred.in.month.1$time.idx==idx,],aes(fill = ba.true),lwd = 0.1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.x = element_blank())+csc.scale.ba+
+  labs(title='Actual Burn Area in Aug 2019')
+
+
+
+#-------------------------------effect of covariates-------------------------
+
+samples = inla.posterior.sample(200, result = res3.2, seed=1234)
+
+n.grid <- 192
+idx.pred.pois <- 1:n1
+idx.pred.z <- (n1+1):(2*n1)
+idx.pred.ba <- (2*n1+1):(3*n1)
+
+idx.predicator <- (3*n1+1):(3*n1+679) # 679 columns in the A matrix (all.stack$A). 
+
+
+
+n2 <- 3*n1+679
+
+idx.time.idx1 <- (n2+1):(n2+12)
+idx.score_1 <- (idx.time.idx1[length(idx.time.idx1)]+1):(idx.time.idx1[length(idx.time.idx1)]+ spde_score_1$n.spde)
+
+idx.idarea2.u <- (idx.score_1[length(idx.score_1)]+1):(idx.score_1[length(idx.score_1)] + n.grid)
+idx.idarea2.v <- (idx.idarea2.u[length(idx.idarea2.u)]+1):(idx.idarea2.u[length(idx.idarea2.u)] + n.grid)
+
+idx.time.idx2 <- (idx.idarea2.v[length(idx.idarea2.v)]+1):(idx.idarea2.v[length(idx.idarea2.v)]+12)
+idx.score_2 <- (idx.time.idx2[length(idx.time.idx2)]+1):(idx.time.idx2[length(idx.time.idx2)]+ spde_score_2$n.spde)
+
+idx.time.idx3 <- (idx.score_2[length(idx.score_2)]+1):(idx.score_2[length(idx.score_2)]+12)
+idx.score_3 <- (idx.time.idx3[length(idx.time.idx3)]+1):(idx.time.idx3[length(idx.time.idx3)]+ spde_score_3$n.spde)
+
+idx.idarea1.u <- (idx.score_3[length(idx.score_3)]+1):(idx.score_3[length(idx.score_3)]+n.grid)
+idx.idarea1.v <- (idx.idarea1.u[length(idx.idarea1.u)]+1):(idx.idarea1.u[length(idx.idarea1.u)]+n.grid)
+
+idx.idarea3.u <- (idx.idarea1.v[length(idx.idarea1.v)]+1):(idx.idarea1.v[length(idx.idarea1.v)]+n.grid)
+idx.idarea3.v <- (idx.idarea3.u[length(idx.idarea3.u)]+1):(idx.idarea3.u[length(idx.idarea3.u)]+n.grid)
+
+idx.Intercept1 <- idx.idarea3.v[length(idx.idarea3.v)]+1
+idx.Intercept2 <- idx.Intercept1 + 1
+idx.Intercept3 <- idx.Intercept1 + 2
+
+samples[[1]]$latent[idx.pred.pois,][193:200]
+
+# (samples[[1]]$latent[idx.Intercept1,] + samples[[1]]$latent[idx.idarea1.u,] + 
+# samples[[1]]$latent[idx.time.idx1[2],] + as.vector(A1%*%matrix(samples[[1]]$latent[idx.score_1,])))[193:200]
+
+
+pred.manual <- samples[[1]]$latent[idx.Intercept1,] + rowSums(expand.grid(samples[[1]]$latent[idx.idarea1.u,],samples[[1]]$latent[idx.time.idx1,]))    +
+ +  as.vector(A1%*%matrix(samples[[1]]$latent[idx.score_1,]))
+
+
+
+
+df.score.cnt <- data.frame('score' = data.fit2$score_cnt)
+mat.score.cnt <- c()
+mat.score.z <- c()
+mat.score.ba <- c()
+
+mat.time.cnt <- c()
+mat.time.z <- c()
+mat.time.ba <- c()
+
+mat.spat.cnt <- c()
+mat.spat.z <- c()
+mat.spat.ba <- c()
+
+for (i in 1:length(samples)){
+  lp.score.cnt <- as.vector(A1%*%matrix(samples[[i]]$latent[idx.score_1,]))
+  lp.score.z <- as.vector(A2%*%matrix(samples[[i]]$latent[idx.score_2,]))
+  lp.score.ba <- as.vector(A3%*%matrix(samples[[i]]$latent[idx.score_3,]))
+  
+  mat.score.cnt <- rbind(mat.score.cnt, lp.score.cnt)
+  mat.score.z <- rbind(mat.score.z, lp.score.z)
+  mat.score.ba <- rbind(mat.score.ba, lp.score.ba)
+  
+  mat.time.cnt <- rbind(mat.time.cnt,samples[[i]]$latent[idx.time.idx1,])
+  mat.time.z <- rbind(mat.time.z,samples[[i]]$latent[idx.time.idx2,])
+  mat.time.ba <- rbind(mat.time.ba,samples[[i]]$latent[idx.time.idx3,])
+  
+  mat.spat.cnt <- rbind(mat.spat.cnt,samples[[i]]$latent[idx.Intercept1,] + 
+                        rowSums(expand.grid(samples[[i]]$latent[idx.idarea1.u,],samples[[i]]$latent[idx.time.idx1,])))
+  mat.spat.z <- rbind(mat.spat.z,samples[[i]]$latent[idx.Intercept2,] + 
+                          rowSums(expand.grid(samples[[i]]$latent[idx.idarea2.u,],samples[[i]]$latent[idx.time.idx2,])))
+  mat.spat.ba <- rbind(mat.spat.ba,samples[[i]]$latent[idx.Intercept3,] + 
+                          rowSums(expand.grid(samples[[i]]$latent[idx.idarea3.u,],samples[[i]]$latent[idx.time.idx3,])))
+}
+
+data.fit2$effect_score_cnt_mean <- colMeans(mat.score.cnt)
+data.fit2$effect_score_cnt_upp <- apply(mat.score.cnt,2 ,quantile,0.975)
+data.fit2$effect_score_cnt_low <- apply(mat.score.cnt,2 ,quantile,0.025)
+
+data.fit2$effect_score_z_mean <- colMeans(mat.score.z)
+data.fit2$effect_score_z_upp <- apply(mat.score.z,2 ,quantile,0.975)
+data.fit2$effect_score_z_low <- apply(mat.score.z,2 ,quantile,0.025)
+
+data.fit2$effect_score_ba_mean <- colMeans(mat.score.ba)
+data.fit2$effect_score_ba_upp <- apply(mat.score.ba,2 ,quantile,0.975)
+data.fit2$effect_score_ba_low <- apply(mat.score.ba,2 ,quantile,0.025)
+
+data.fit2$effect_spat_cnt_mean <- colMeans(mat.spat.cnt)
+data.fit2$effect_spat_cnt_upp <- apply(mat.spat.cnt,2 ,quantile,0.975)
+data.fit2$effect_spat_cnt_low <- apply(mat.spat.cnt,2 ,quantile,0.025)
+
+data.fit2$effect_spat_z_mean <- colMeans(mat.spat.z)
+data.fit2$effect_spat_z_upp <- apply(mat.spat.z,2 ,quantile,0.975)
+data.fit2$effect_spat_z_low <- apply(mat.spat.z,2 ,quantile,0.025)
+
+data.fit2$effect_spat_ba_mean <- colMeans(mat.spat.ba)
+data.fit2$effect_spat_ba_upp <- apply(mat.spat.ba,2 ,quantile,0.975)
+data.fit2$effect_spat_ba_low <- apply(mat.spat.ba,2 ,quantile,0.025)
+
+ggplot(data.fit2) +
+  stat_smooth(aes(x = score_cnt, y = effect_score_cnt_mean), col='#EB5B00') + 
+  stat_smooth(aes(x = score_cnt, y = effect_score_cnt_upp),linetype='dashed',col='#EB5B00') + 
+  stat_smooth(aes(x = score_cnt, y = effect_score_cnt_low),linetype='dashed',col='#EB5B00')+
+  geom_point(aes(x = score_cnt, y = -5),size=0.8) + 
+  labs(y='linear predicator')
+ 
+
+ggplot(data.fit2) +
+  stat_smooth(aes(x = score_z, y = effect_score_z_mean), col='#EB5B00') + 
+  stat_smooth(aes(x = score_z, y = effect_score_z_upp),linetype='dashed',col='#EB5B00') + 
+  stat_smooth(aes(x = score_z, y = effect_score_z_low),linetype='dashed',col='#EB5B00') +
+  geom_point(aes(x = score_z, y = -6),size=0.8)+
+  labs(y='linear predicator')
+
+
+ggplot(data.fit2) +
+  stat_smooth(aes(x = score_ba, y = effect_score_ba_mean),col='#EB5B00') + 
+  stat_smooth(aes(x = score_ba, y = effect_score_ba_upp),linetype='dashed',col='#EB5B00') + 
+  stat_smooth(aes(x = score_ba, y = effect_score_ba_low),linetype='dashed',col='#EB5B00') + 
+  geom_point(aes(x = score_ba, y = -1.5),size=0.8)+
+  labs(y='linear predicator')
+
+  
+
+
+
+B2_sf <- st_as_sf(B2.merge)
+library(tidyr)
+B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:108))
+B2_sf$time.idx <- as.integer(substring(B2_sf$y.time.idx, 3, 5))
+
+B2_sf <- merge(
+  B2_sf[,c('grid.idx','time.idx')], data.fit2,
+  
+  by.x=c('grid.idx','time.idx'),
+  by.y=c('grid.idx','time.idx'),
+)
+
+year <- 2019
+month <- 1
+idx <- 12*(year-2012) + month
+
+
+lprange.scale.effect <- c(0, 0.9)
+
+csc.scale.effect <- scale_fill_gradient( low = "#F7F7F7", high = "#E4003A", limits = lprange.scale.effect)
+
+
+ggplot() + geom_sf(data=B2_sf[B2_sf$time.idx==idx,],aes(fill = exp(effect_spat_z_mean)/(1+exp(effect_spat_z_mean))),lwd = 0.1) +
+  # geom_sf(data=st_as_sf(district),alpha = 0)+
+  # facet_wrap(~time.idx, dir = "h", ncol =3) +
+  # ggtitle(paste("Actual y in 2012")) +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+        # axis.text.y = element_blank(),
+        # axis.ticks = element_blank()
+  )+ csc.scale.effect+
+  labs(fill  = "BYM2 + Month Effect",title='Mean of the linear predicator of BYM2 + Month' )
+
+ggplot() + geom_sf(data=B2_sf[B2_sf$time.idx==idx,],aes(fill = score_z),lwd = 0.1) +
+  # geom_sf(data=st_as_sf(district),alpha = 0)+
+  # facet_wrap(~time.idx, dir = "h", ncol =3) +
+  # ggtitle(paste("Actual y in 2012")) +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+        # axis.text.y = element_blank(),
+        # axis.ticks = element_blank()
+  )+csc.scale.effect+
+  labs(title='Score z')
+
+
+ggplot() + geom_sf(data=B2_sf[B2_sf$time.idx==103,],aes(fill = exp(effect_score_cnt_mean)),lwd = 0.1) +
+  # geom_sf(data=st_as_sf(district),alpha = 0)+
+  # facet_wrap(~time.idx, dir = "h", ncol =3) +
+  # ggtitle(paste("Actual y in 2012")) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+        # axis.text.y = element_blank(),
+        # axis.ticks = element_blank()
+  )+csc.scale.effect
+
+ggplot() + geom_sf(data=B2_sf[B2_sf$time.idx==103,],aes(fill = score_cnt),lwd = 0.1) +
+  # geom_sf(data=st_as_sf(district),alpha = 0)+
+  # facet_wrap(~time.idx, dir = "h", ncol =3) +
+  # ggtitle(paste("Actual y in 2012")) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+        # axis.text.y = element_blank(),
+        # axis.ticks = element_blank()
+  )+csc.scale.effect
+#------------------------- feature importance for xgboost model-------------
+library(SHAPforxgboost)
+
+shap_values <- shap.values(xgb_model = model.z, X_train = TrainSet1)
+# The ranked features by mean |SHAP|
+shap_values$mean_shap_score
+
+
+# To prepare the long-format data:
+shap_long <- shap.prep(xgb_model = model.z, X_train = as.matrix(data.rf[, c(covar.names)]))
+# is the same as: using given shap_contrib
+shap_long <- shap.prep(shap_contrib = shap_values$shap_score, X_train = as.matrix(data.rf[, c(covar.names)]))
+# (Notice that there will be a data.table warning from `melt.data.table` due to `dayint` coerced from
+# integer to double)
+
+# **SHAP summary plot**
+shap.plot.summary(shap_long)
+
+# sometimes for a preview, you want to plot less data to make it faster using `dilute`
+shap.plot.summary(shap_long, x_bound  = 1.2, dilute = 10)
+
+# Alternatives options to make the same plot:
+# option 1: start with the xgboost model
+shap.plot.summary.wrap1(mod, X = dataX)
+
+
+
+fig_list = lapply(names(shap_values$mean_shap_score)[1:6], shap.plot.dependence, 
+                  data_long = shap_long, dilute = 5)
+gridExtra::grid.arrange(grobs = fig_list, ncol = 2)
+
+
+# choose to show top 4 features by setting `top_n = 4`, set 6 clustering groups.  
+plot_data <- shap.prep.stack.data(shap_contrib = shap_values$shap_score, top_n = 4, n_groups = 6)
+
+# choose to zoom in at location 500, set y-axis limit using `y_parent_limit`  
+# it is also possible to set y-axis limit for zoom-in part alone using `y_zoomin_limit`  
+shap.plot.force_plot(plot_data, zoom_in_location = 500, y_parent_limit = c(-1,1))
+
+# plot by each cluster
+shap.plot.force_plot_bygroup(plot_data)
 
 ########################################################################
 
