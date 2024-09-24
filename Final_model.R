@@ -487,6 +487,40 @@ nothing2 <- rep(NA, n1)
 
 data.fit2 <- data.fit2[order(data.fit2$time.idx),]
 
+
+coo <- as.matrix(data.fit2[,c('grid.cent.x.utm','grid.cent.y.utm')])
+# mesh.spat <- inla.mesh.2d(
+#   loc = coo, offset = c(20, 30),
+#   cutoff = 1, max.edge = c(60, 80)
+# )
+
+mesh.spat <- inla.mesh.2d(
+  # loc = coo,
+  boundary = domainSP,
+  offset = c(20, 30),
+  cutoff = 1, max.edge = c(40, 60)
+)
+
+plot(mesh.spat)
+points(coo, col = "red")
+
+mesh.spat$n
+
+spde.spat <- inla.spde2.pcmatern(mesh = mesh.spat,
+                            # PC-prior on range: P(practic.range < 0.05) = 0.01
+                            prior.range = c(60, 0.05),
+                            # PC-prior on sigma: P(sigma > 1) = 0.01
+                            prior.sigma = c(1, 0.01)) 
+
+indexs.1 <- inla.spde.make.index("spat1", spde.spat$n.spde)
+A.spat.1 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
+
+indexs.2 <- inla.spde.make.index("spat2", spde.spat$n.spde)
+A.spat.2 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
+
+indexs.3 <- inla.spde.make.index("spat3", spde.spat$n.spde)
+A.spat.3 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
+
 z <- as.vector((data.fit2$y>0)+0)
 log.ba <- as.vector(ifelse(data.fit2$y>0, data.fit2$log_ba, NA))
 # cnt = as.vector(data.fit2$y)
@@ -573,9 +607,9 @@ spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde
 
 cnt.stack <- inla.stack(
   data= list(Y.log=cbind(cnt,NA,NA)),
-  A <- list(1,1,1,A1,1),
+  A <- list(1,1,1,A1,1,A.spat.1),
   effect = list(Intercept1=rep(1,nrow(data.fit2)), idarea1=data.fit2$grid.idx, time.idx1=data.fit2$month.idx, score_1=spde_score_1.idx,
-                score_1_grp = score_cnt_grp),
+                score_1_grp = score_cnt_grp, spat1=indexs.1),
   tag='cnt'
 )
 
@@ -584,9 +618,9 @@ dim(cnt.stack$A)
 
 z.stack <- inla.stack(
   data= list(Y.log=cbind(NA,z,NA)),
-  A <- list(1,1,1,A2,1),
+  A <- list(1,1,1,A2,1,A.spat.2),
   effect = list(Intercept2=rep(1,nrow(data.fit2)), idarea2=data.fit2$grid.idx, time.idx2=data.fit2$month.idx, score_2=spde_score_2.idx,
-                score_2_grp=score_z_grp),
+                score_2_grp=score_z_grp, spat2=indexs.2),
   tag='z'
 )
 
@@ -596,14 +630,15 @@ dim(z.stack$A)
 
 ba.stack <- inla.stack(
   data= list(Y.log=cbind(NA,NA,log.ba)),
-  A <- list(1,1,1, A3,1),
+  A <- list(1,1,1, A3,1,A.spat.3),
   effect = list(Intercept3=rep(1,nrow(data.fit2)), idarea3=data.fit2$grid.idx, time.idx3=data.fit2$month.idx, score_3=spde_score_3.idx,
-                score_3_grp=score_ba_grp),
+                score_3_grp=score_ba_grp, spat3=indexs.3),
   tag='ba'
 )
 
 dim(ba.stack$A)
 1 + 192 + 12 + ncol(A3) + length(table(score_ba_grp))
+
 
 all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
 
@@ -649,6 +684,11 @@ formula2 <- Y.log ~  -1  +
   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
   Intercept2 +  f(idarea2, model='bym2', graph=g) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
   Intercept3 + f(idarea3,  copy='idarea2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
+
+formula3 <- Y.log ~  -1  +
+  Intercept1 + f(spat1, copy='spat2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
+  Intercept2 + f(spat2, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+  Intercept3 + f(spat3, copy='spat2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
 
 
 t1 <- Sys.time()
@@ -759,17 +799,31 @@ summary(res3.2)
 
 save(res3.2, file=file.path(dir.out,'Final_Model_3.2.RData'))
 
-load(file.path(dir.out,'Final_Model_3.2.RData'))
+# load(file.path(dir.out,'Final_Model_3.2.RData'))
 
+t1 <- Sys.time()
+res3.3 <- inla(formula3,
+               family = c('poisson','binomial', 'weibull'), data = inla.stack.data(all.stack),  Ntrials=1,
+               control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+               verbose=TRUE,
+               control.compute=list(config = TRUE),
+               control.family = list( list(), list(), list()),
+               control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
+summary(res3.3)
 
+save(res3.3, file=file.path(dir.out,'Final_Model_3.3.RData'))
 
 
 n1 <- 192*108
 
 
 
-# load(file=file.path(dir.out,'Final_Model_3.2_pred.sp.RData'))
-load(file=file.path(dir.out,'Final_Model_3.2_pred.sp_1000.RData'))
+load(file=file.path(dir.out,'Final_Model_3.2_pred.sp.RData'))
+# load(file=file.path(dir.out,'Final_Model_3.2_pred.sp_1000.RData'))
+# load(file=file.path(dir.out,'Final_Model_3.3_pred.sp_200.RData'))
 pred.cnt <- pred.sp$pred.cnt
 pred.ba <- pred.sp$pred.ba
 pred.z <- pred.sp$pred.z
@@ -1214,7 +1268,7 @@ idx.pred.ba <- (2*n1+1):(3*n1)
 idx.predicator <- (3*n1+1):(3*n1+679) # 679 columns in the A matrix (all.stack$A). 
 
 
-
+# only for bym models
 n2 <- 3*n1+679
 
 idx.time.idx1 <- (n2+1):(n2+12)
