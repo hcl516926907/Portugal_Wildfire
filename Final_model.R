@@ -206,7 +206,7 @@ covar.names <- c(covar.names ,#'LVegTyp','HVegTyp',
                  'lon.grid','lat.grid',
                  'month.idx')
 
-data.rf <- data.fit2[data.fit2$time.idx <= 84, c(covar.names,'y','area_ha','z')]
+data.rf <- data.fit2[data.fit2$time.idx <= 84, c(covar.names,'grid.idx','time.idx','year.idx','area_ha','z','y')]
 # for (var in c('LVegTyp','HVegTyp','month.idx')){
 #   data.rf[,var] <- as.factor(data.rf[,var])
 # }
@@ -217,16 +217,17 @@ library(pROC)
 data.rf$log_ba <- log(data.rf$area_ha)
 data.rf[is.na(data.rf$log_ba),'log_ba'] <- 0
 
-kfold_cv_pred  <- function(data, target, params, k) {
+kfold_cv_pred  <- function(data, target.name ,covar.names, params, k) {
   auc_train_list <- numeric(k)
   auc_test_list <- numeric(k)
   
   for (i in 1:k) {
-    index <- (1:(192*12))+(i-1)*(192*12)
-    train_data <- data[-index, ]
-    train_target <- target[-index]
-    test_data <- data[index, ]
-    test_target <- target[index]
+    index <- which(data$year.idx==i)
+    train_data <- data[-index, covar.names ]
+    train_target <- data[-index, target.name]
+    test_data <- data[index, covar.names]
+    test_target <- data[index, target.name ]
+    
     dtrain <- xgb.DMatrix(data = as.matrix(train_data), label = train_target)
     dtest <- xgb.DMatrix(data = as.matrix(test_data), label = test_target)
     
@@ -243,37 +244,22 @@ kfold_cv_pred  <- function(data, target, params, k) {
   return(data$score)
 }
 
-##without coordiates
-# params_z <- list(
-#   eta = 0.02,
-#   max_depth = 2,
-#   gamma = 0.2,
-#   colsample_bytree = 0.8,
-#   min_child_weight = 3,
-#   subsample = 0.8,
-#   nrounds = 100,
-#   objective = "binary:logistic",
-#   eval_metric = "auc",
-#   scale_pos_weight = 27,
-#   verbosity = 0
-# )
-
-##with coordiates
 params_z <- list(
-  eta = 0.07,
+  nrounds = 55,
+  eta = 0.05,
   max_depth = 4,
-  gamma = 0,
-  colsample_bytree = 0.9,
-  min_child_weight = 3,
+  gamma = 0.1,
+  scale_pos_weight = 25,
+  colsample_bytree = 0.8,
+  min_child_weight = 1,
   subsample = 0.8,
-  nrounds = 35,
   objective = "binary:logistic",
   eval_metric = "auc",
-  scale_pos_weight = 27,
+  scale_pos_weight = 25,
   verbosity = 0
 )
 
-data.rf$score_z <- kfold_cv_pred(data.rf[, c(covar.names)], data.rf[, 'z'], params_z, 7)
+data.rf$score_z <- kfold_cv_pred(data.rf, 'z', covar.names ,params_z, 7)
 
 
 TrainSet1 <- xgb.DMatrix(data=as.matrix(data.rf[, c(covar.names)]),label=data.rf[, c('z')])
@@ -285,69 +271,34 @@ data.fit2[data.fit2$time.idx <= 84, 'score_z'] <- data.rf$score_z
 data.fit2[data.fit2$time.idx > 84, 'score_z'] <- predict(model.z, as.matrix(data.fit2[data.fit2$time.idx > 84,c(covar.names)]))
 
 
-# params_ba <- list(
-#   eta = 0.05,
-#   max_depth = 3,
-#   gamma = 1,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 5,
-#   subsample = 0.7,
-#   nrounds = 150,
-#   objective = 'reg:tweedie',
-#   verbosity = 0
-# )
-# data.rf$score_ba <- kfold_cv_pred(data.rf[, c(covar.names,'score_z')], data.rf[, 'log_ba'], params_ba, 7)
-# 
-# 
-# TrainSet2 <- xgb.DMatrix(data=as.matrix(data.rf[, c(covar.names,'score_z')]),label=data.rf[, c('log_ba')])
-# 
-# model.ba <- xgb.train(params = params_ba, data = TrainSet2, nrounds = params_ba$nrounds)
-
-#without coordiantes
-# params_ba <- list(
-#   eta = 0.1,
-#   max_depth = 2,
-#   gamma = 1,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 5,
-#   subsample = 0.8,
-#   nrounds = 50,
-#   objective = 'reg:squarederror',
-#   verbosity = 0
-# )
 
 # with coordiantes
 params_ba <- list(
-  nrounds = 60,
-  eta = 0.05,
+  nrounds = 80,
+  eta = 0.04,
   max_depth = 2,
-  gamma = 0.7,
-  colsample_bytree = 0.9,
+  gamma = 0,
+  colsample_bytree = 1,
   min_child_weight = 8,
-  subsample = 0.5,
-  objective = 'reg:squarederror',
-  verbosity = 0
+  subsample = 0.8,
+  objective=c('reg:squarederror')
 )
 
 
-kfold_cv_pred_1  <- function(data, target, params, k) {
-  auc_train_list <- numeric(k)
-  auc_test_list <- numeric(k)
-  data$score <- NA
+kfold_cv_pred_pos <- function(data, target.name ,covar.names, params, k) {
+  loss_train_list <- numeric(k)
+  loss_test_list <- numeric(k)
   for (i in 1:k) {
-    index <- (1:(192*12))+(i-1)*(192*12)
-    
-    train_data <- data[-index, ]
-    train_target <- target[-index]
+    index <- which(data$year.idx==i)
+    train_data <- data[-index, covar.names ]
+    train_target <- data[-index, target.name]
     pos.ind.train <- train_target>0
     train_data <- train_data[pos.ind.train,]
     train_target <- train_target[pos.ind.train]
+    # print(table(data[-index,'grid.idx']))
     
-    test_data <- data[index, ]
-    test_target <- target[index]
-    pos.ind.test <- test_target>0
-    test_data <- test_data[pos.ind.test,]
-    test_target <- test_target[pos.ind.test]
+    test_data <- data[index, covar.names]
+    test_target <- data[index, target.name ]
     
     
     dtrain <- xgb.DMatrix(data = as.matrix(train_data), label = train_target)
@@ -359,7 +310,7 @@ kfold_cv_pred_1  <- function(data, target, params, k) {
     train_pred <- predict(model, dtrain)
     test_pred <- predict(model, dtest)
     
-    data[index,][pos.ind.test,'score'] <- test_pred
+    data[index, 'score'] <- test_pred
   }
   
   
@@ -367,7 +318,7 @@ kfold_cv_pred_1  <- function(data, target, params, k) {
 }
 
 
-data.rf$score_ba <- kfold_cv_pred_1(data.rf[, c(covar.names)], data.rf[, 'log_ba'], params_ba, 7)
+data.rf$score_ba <- kfold_cv_pred_pos(data.rf,'log_ba',covar.names, params_ba, 7)
 
 TrainSet2 <- xgb.DMatrix(data=as.matrix(data.rf[data.rf$y>0, c(covar.names)]),label=data.rf[data.rf$y>0, c('log_ba')])
 # 
@@ -379,56 +330,22 @@ model.ba <- xgb.train(params = params_ba, data = TrainSet2, nrounds = params_ba$
 # data.fit2[data.fit2$time.idx > 84, 'score_ba'] <- predict(model.ba, as.matrix(data.fit2[data.fit2$time.idx > 84,c(covar.names,'score_z')]))
 
 data.fit2[data.fit2$time.idx <= 84, 'score_ba'] <- data.rf$score_ba
-data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0, 'score_ba'] <- predict(model.ba, as.matrix(data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0,c(covar.names)]))
+data.fit2[data.fit2$time.idx > 84, 'score_ba'] <- predict(model.ba, as.matrix(data.fit2[data.fit2$time.idx > 84,c(covar.names)]))
 
 
 
-#without coordinates
-# params_cnt <- list(
-#   eta = 0.1,
-#   max_depth = 3,
-#   gamma = 1,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 3,
-#   subsample = 0.7,
-#   nrounds = 50,
-#   objective = 'count:poisson',
-#   verbosity = 0
-# )
-
-# #with coordiantes
-# params_cnt <- list(
-#   eta = 0.09,
-#   max_depth = 5,
-#   gamma = 0.8,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 7,
-#   subsample = 1,
-#   nrounds = 70,
-#   objective = 'count:poisson',
-#   verbosity = 0
-# )
-# TrainSet3 <- xgb.DMatrix(data=as.matrix(data.rf[, c(covar.names,'score_z')]),label=data.rf[, c('y')])
-# 
-# set.seed(1234)
-# model.cnt <- xgb.train(params = params_cnt, data = TrainSet3, nrounds = params_cnt$nrounds)
-# data.rf$score_cnt <- kfold_cv_pred(data.rf[, c(covar.names,'score_z')], data.rf[, 'y'], params_cnt, 7)
-
-
-#with coordiantes hurdle score
 params_cnt <- list(
-  eta = 0.08,
+  nrounds = 80,
+  eta = 0.04,
   max_depth = 3,
-  gamma = 0.5,
-  colsample_bytree = 0.5,
-  min_child_weight = 2,
+  gamma = 0.4,
+  colsample_bytree = 0.4,
+  min_child_weight = 8,
   subsample = 1,
-  nrounds = 65,
-  objective = 'count:poisson',
-  verbosity = 0
+  objective=c('count:poisson')
 )
 
-data.rf$score_cnt <- kfold_cv_pred_1(data.rf[, c(covar.names)], data.rf[, 'y'], params_cnt, 7)
+data.rf$score_cnt <- kfold_cv_pred_pos(data.rf,'y',covar.names, params_ba, 7)
 
 
 TrainSet3 <- xgb.DMatrix(data=as.matrix(data.rf[data.rf$y>0, c(covar.names)]),label=data.rf[data.rf$y>0, c('y')])
@@ -438,7 +355,7 @@ model.cnt <- xgb.train(params = params_cnt, data = TrainSet3, nrounds = params_c
 
 
 data.fit2[data.fit2$time.idx <= 84, 'score_cnt'] <- data.rf$score_cnt
-data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0, 'score_cnt'] <- predict(model.cnt, as.matrix(data.fit2[data.fit2$time.idx > 84 & data.fit2$y>0,c(covar.names)]))
+data.fit2[data.fit2$time.idx > 84 , 'score_cnt'] <- predict(model.cnt, as.matrix(data.fit2[data.fit2$time.idx > 84 ,c(covar.names)]))
 
 
 
@@ -460,9 +377,6 @@ sum((data.fit2[data.fit2$year.idx>7 & data.fit2$y>0,'y']-data.fit2[data.fit2$yea
 
 
 
-# for (var in c('score_cnt','score_ba','score_z') ){
-#   data.fit2[,var] <- (data.fit2[,var]-mean(data.fit2[,var],na.rm=T))/sd(data.fit2[,var],na.rm=T)
-# }
 
 data.fit3 <- reshape(data.fit2[,c('grid.idx','time.idx','y')],
                      timevar = "time.idx",
@@ -572,7 +486,7 @@ score_ba_grp[which(data.fit2$y>0)] <- inla.group(data.fit2[data.fit2$y>0,]$score
 score_3 <- c(nothing1, nothing2, data.fit2$score_ba)
 score_3_grp <- c(nothing1, nothing2, score_ba_grp)
 
-data.fit2[is.na(data.fit2$score_ba),'score_cnt'] <- 0
+
 # mesh_score_1 <- inla.mesh.1d(seq(0,2,by=0.25),boundary=c('dirichlet','free')) 
 mesh_score_1 <- inla.mesh.1d(c(0.9,1.1,1.3,1.6,1.9),boundary=c('free','free')) 
 A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit2$score_cnt)
@@ -593,12 +507,11 @@ spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2,
 spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
 
 
-data.fit2[is.na(data.fit2$score_ba),'score_ba'] <- 0
 mesh_score_3 <- inla.mesh.1d(c(3,4,5,6),boundary=c('free','free'))
 # mesh_score_3 <- inla.mesh.1d(seq(0, 7, by = 1),boundary=c('dirichlet','free'))
 A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit2$score_ba)
 spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3, 
-                                     prior.range = c(0.1, 0.05),
+                                     prior.range = c(0.5, 0.05),
                                      prior.sigma = c(1, 0.05))
 # spde_score_3 <-  inla.spde2.matern(mesh_score_3, constr = TRUE)
 spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
@@ -821,7 +734,7 @@ n1 <- 192*108
 
 
 
-load(file=file.path(dir.out,'Final_Model_3.2_pred.sp.RData'))
+load(file=file.path(dir.out,'Final_Model_3.1_pred.sp_200.RData'))
 # load(file=file.path(dir.out,'Final_Model_3.2_pred.sp_1000.RData'))
 # load(file=file.path(dir.out,'Final_Model_3.3_pred.sp_200.RData'))
 pred.cnt <- pred.sp$pred.cnt
@@ -1076,7 +989,6 @@ data.fit2[,'Upper_BA'] <- sapply(pred.ba,quantile,0.975)
 
 
 
-
 ########################   Visualization #################################
 dist<-shapefile(file.path("/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Urban_Fires","distritos.shp"))
 dist$ID_0 <- as.factor(iconv(as.character(dist$ID_0), "UTF-8"))
@@ -1113,9 +1025,9 @@ ggplot() +geom_sf(data=merged_sf1, aes(fill=NAME_1,col=NAME_1)) +
   geom_sf(data = sf_districts,color = "black", fill = NA)
 
 
-dist.name <- 'Castelo Branco'
+# dist.name <- 'Castelo Branco'
 # dist.name <- 'Guarda'
-# dist.name <- 'Vila Real'
+dist.name <- 'Vila Real'
 joint.post.sp <- function(x) Reduce("+", x)
 df.dist <- data.frame(month=rep(1:108, each=length(pred.cnt[[1]])))
 df.dist$year_label <- 2012 + (df.dist$month-1)%/%12

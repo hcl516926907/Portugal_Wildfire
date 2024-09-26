@@ -6,8 +6,8 @@ library(INLA)
 
 inla.setOption(scale.model.default = TRUE)
 
-load(file=file.path(dir.out,'Final_Model_3.3.RData'))
-result <- res3.3
+load(file=file.path(dir.out,'Final_Model_3.1.RData'))
+result <- res3.1
 n1 <- 192*108
 
 post.pred.gpd.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, alpha,n.samples=200 ){
@@ -374,4 +374,4 @@ pred.sp <- post.pred.weibull.hurdle.parallel(samples, idx.pred.pois, idx.pred.z,
 t2 <- Sys.time()
 print(t2-t1)
 
-save(pred.sp, file=file.path(dir.out,'Final_Model_3.3_pred.sp_200.RData'))
+save(pred.sp, file=file.path(dir.out,'Final_Model_3.1_pred.sp_200.RData'))
