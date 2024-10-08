@@ -92,13 +92,13 @@ f.get.cov <- function(dataset, cov.name){
 B <- SpatialPolygonsDataFrame(domainSP, data.frame('weight'=1), match.ID = F) 
 
 
-grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
-                                cellsize = c(0.0625,0.0625),
-                                cells.dim = c(68, 116)))
-
 # grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
-#                                 cellsize = c(0.125,0.125),
-#                                 cells.dim = c(34, 58)))
+#                                 cellsize = c(0.0625,0.0625),
+#                                 cells.dim = c(68, 116)))
+
+grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
+                                cellsize = c(0.125,0.125),
+                                cells.dim = c(34, 58)))
 
 grd_sp <- SpatialPixelsDataFrame(points = grd, data = data.frame(grid.idx = 1:length(grd)),proj4string = CRS("+proj=longlat +datum=WGS84"))
 
@@ -304,127 +304,127 @@ xgboost_tune_z <- function(tune_grid){
   return(results_df)
 }
 # 
-# tune_grid <- expand.grid(
-#   nrounds = 100,
-#   eta = c(0.05,0.06,0.07,0.08),
-#   max_depth = 4,
-#   gamma = 0,
-#   scale_pos_weight = 250,
-#   colsample_bytree = 1,
-#   min_child_weight = 1,
-#   subsample = 1
-# )
-# 
-# 
-# results_df1 <- xgboost_tune_z(tune_grid)
-# print(results_df1[order(results_df1$mean_auc_test,decreasing=T),])
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = seq(0.01,0.1,0.01),
+  max_depth = 3,
+  gamma = 0,
+  scale_pos_weight = 75,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+
+results_df1 <- xgboost_tune_z(tune_grid)
+print(results_df1[order(results_df1$mean_auc_test,decreasing=T),])
 # save(results_df1, file=file.path(dir.out, 'XGBoost_Param_z_1.RData'))
 # 250      0.9571726     0.8766037
 
 # 
-# tune_grid <- expand.grid(
-#   nrounds = 100,
-#   eta = 0.03,
-#   max_depth = c(2,3,4,5,6,7),
-#   gamma = 0,
-#   scale_pos_weight = 250,
-#   colsample_bytree = 1,
-#   min_child_weight = 1,
-#   subsample = 1
-# )
-# 
-# results_df2 <- xgboost_tune_z(tune_grid)
-# 
-# print(results_df2[order(results_df2$mean_auc_test,decreasing=T),])
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = 0.06,
+  max_depth = c(2,3,4),
+  gamma = 0,
+  scale_pos_weight = c(75,80,85),
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+results_df2 <- xgboost_tune_z(tune_grid)
+
+print(results_df2[order(results_df2$mean_auc_test,decreasing=T),])
 # 
 # save(results_df2, file=file.path(dir.out, 'XGBoost_Param_z_2.RData'))
 # load(file.path(dir.out, 'XGBoost_Param_z_2.RData'))
 
 
 # 
-# tune_grid <- expand.grid(
-#   nrounds = 100,
-#   eta = 0.06,
-#   max_depth = 4,
-#   gamma = 0,
-#   scale_pos_weight = 250,
-#   colsample_bytree = 1,
-#   min_child_weight = c(1,3,5,7),
-#   subsample = 1
-# )
-# 
-# results_df3 <- xgboost_tune_z(tune_grid)
-# 
-# print(results_df3[order(results_df3$mean_auc_test,decreasing=T),])
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = 0.06,
+  max_depth = 3,
+  gamma = 0,
+  scale_pos_weight = 75,
+  colsample_bytree = 1,
+  min_child_weight = c(5,6,7,8,9,10),
+  subsample = 1
+)
+
+results_df3 <- xgboost_tune_z(tune_grid)
+
+print(results_df3[order(results_df3$mean_auc_test,decreasing=T),])
 # 
 # save(results_df3, file=file.path(dir.out, 'XGBoost_Param_z_3.RData'))
 
 
-# tune_grid <- expand.grid(
-#   nrounds = 100,
-#   eta = 0.06,
-#   max_depth = 4,
-#   gamma = 0,
-#   scale_pos_weight = 250,
-#   colsample_bytree = c(0.6,0.7,0.8,0.9,1),
-#   min_child_weight = 1,
-#   subsample = c(0.6,0.7,0.8,0.9,1)
-# )
-# 
-# results_df4 <- xgboost_tune_z(tune_grid)
-# 
-# print(results_df4[order(results_df4$mean_auc_test,decreasing=T),])
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = 0.06,
+  max_depth = 3,
+  gamma = 0,
+  scale_pos_weight = 75,
+  colsample_bytree = c(0.6,0.7,0.8,0.9,1),
+  min_child_weight = 7,
+  subsample = c(0.6,0.7,0.8,0.9,1)
+)
+
+results_df4 <- xgboost_tune_z(tune_grid)
+
+print(results_df4[order(results_df4$mean_auc_test,decreasing=T),])
 # 
 # save(results_df4, file=file.path(dir.out, 'XGBoost_Param_z_4.RData'))
 
 
-# tune_grid <- expand.grid(
-#   nrounds = 100,
-#   eta = 0.06,
-#   max_depth = 4,
-#   gamma = c(0,0.1,0.2,0.3,0.4,0.5),
-#   scale_pos_weight = 250,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 1,
-#   subsample = 0.7
-# )
-# 
-# results_df5 <- xgboost_tune_z(tune_grid)
-# 
-# print(results_df5[order(results_df5$mean_auc_test,decreasing=T),])
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = 0.06,
+  max_depth = 3,
+  gamma = seq(0,1,0.1),
+  scale_pos_weight = 75,
+  colsample_bytree = 0.7,
+  min_child_weight = 7,
+  subsample = 0.9
+)
+
+results_df5 <- xgboost_tune_z(tune_grid)
+
+print(results_df5[order(results_df5$mean_auc_test,decreasing=T),])
 # 
 # save(results_df5, file=file.path(dir.out, 'XGBoost_Param_z_5.RData'))
 
-# tune_grid <- expand.grid(
-#   nrounds = seq(10,100,5),
-#   eta = 0.06,
-#   max_depth = 4,
-#   gamma = 0,
-#   scale_pos_weight = 250,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 1,
-#   subsample = 0.7
-# )
+tune_grid <- expand.grid(
+  nrounds = seq(10,100,5),
+  eta = 0.06,
+  max_depth = 3,
+  gamma = 0.2,
+  scale_pos_weight = 75,
+  colsample_bytree = 0.7,
+  min_child_weight = 7,
+  subsample = 0.9
+)
 # 
-# results_df6 <- xgboost_tune_z(tune_grid)
-# print(results_df6[order(results_df6$mean_auc_test,decreasing=T),])
+results_df6 <- xgboost_tune_z(tune_grid)
+print(results_df6[order(results_df6$mean_auc_test,decreasing=T),])
 # save(results_df6, file=file.path(dir.out, 'XGBoost_Param_z_6.RData'))
 
 
-load(file.path(dir.out, 'XGBoost_Param_z_6.RData'))
+# load(file.path(dir.out, 'XGBoost_Param_z_6.RData'))
 
 plot(results_df6$nrounds,results_df6$mean_auc_train,type='l',col='blue',ylim=c(0.85,0.95))
-plot(results_df6$nrounds,results_df6$mean_auc_test,col='red',type='l')
+lines(results_df6$nrounds,results_df6$mean_auc_test,col='red',type='l')
 
 tune_grid_z <- expand.grid(
-  nrounds = 70,
+  nrounds = 100,
   eta = 0.06,
-  max_depth = 4,
-  gamma = 0,
-  scale_pos_weight = 250,
+  max_depth = 3,
+  gamma = 0.2,
+  scale_pos_weight = 75,
   colsample_bytree = 0.7,
-  min_child_weight = 1,
-  subsample = 0.7
+  min_child_weight = 7,
+  subsample = 0.9
 )
 
 
@@ -475,7 +475,7 @@ kfold_cv_pos <- function(data, target.name ,covar.names, params, k) {
 
 xgboost_tune_ba <- function(tune_grid){
   
-  k <- 7
+  k <- 8
   
   results_df <- data.frame(
     eta = numeric(0),
@@ -547,8 +547,8 @@ results_df_reg[order(results_df_reg$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.09,
-  max_depth = c(2,3,4,5,6,7,8),
+  eta = 0.06,
+  max_depth = c(2,3,4),
   gamma = 0,
   colsample_bytree = 1,
   min_child_weight = 1,
@@ -564,11 +564,11 @@ results_df_reg_1[order(results_df_reg_1$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.09,
+  eta = 0.06,
   max_depth = 2,
   gamma = 0,
   colsample_bytree = 1,
-  min_child_weight = c(1,2,3,4,5,6,7,8,9,10,11,12,13),
+  min_child_weight = c(1,2,3,4,5),
   subsample = 1,
   objective=c('reg:squarederror')
 )
@@ -583,11 +583,11 @@ results_df_reg_2[order(results_df_reg_2$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.09,
+  eta = 0.06,
   max_depth = 2,
   gamma = 0,
   colsample_bytree = seq(0.4,1,0.1),
-  min_child_weight = 1,
+  min_child_weight = 2,
   subsample = seq(0.4,1,0.1),
   objective=c('reg:squarederror')
 )
@@ -602,12 +602,12 @@ results_df_reg_3[order(results_df_reg_3$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.09,
+  eta = 0.06,
   max_depth = 2,
   gamma = seq(0,1,0.1),
-  colsample_bytree = 0.8,
-  min_child_weight = 1,
-  subsample = 0.9,
+  colsample_bytree = 0.9,
+  min_child_weight = 2,
+  subsample = 0.6,
   objective=c('reg:squarederror')
 )
 
@@ -619,12 +619,12 @@ results_df_reg_4[order(results_df_reg_4$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
-  eta = 0.09,
+  eta = 0.06,
   max_depth = 2,
-  gamma = 0.4,
-  colsample_bytree = 0.8,
-  min_child_weight = 1,
-  subsample = 0.9,
+  gamma = 0.6,
+  colsample_bytree = 0.9,
+  min_child_weight = 2,
+  subsample = 0.6,
   objective=c('reg:squarederror')
 )
 
@@ -637,12 +637,12 @@ lines(results_df_reg_5$nrounds,results_df_reg_5$mean_loss_test,col='red')
 
 tune_grid <- expand.grid(
   nrounds = 60,
-  eta = 0.09,
+  eta = 0.06,
   max_depth = 2,
-  gamma = 0.4,
-  colsample_bytree = 0.8,
-  min_child_weight = 1,
-  subsample = 0.9,
+  gamma = 0.6,
+  colsample_bytree = 0.9,
+  min_child_weight = 2,
+  subsample = 0.6,
   objective=c('reg:squarederror')
 )
 
@@ -653,7 +653,7 @@ tune_grid <- expand.grid(
 
 xgboost_tune_cnt <- function(tune_grid){
   
-  k <- 7
+  k <- 8
   
   results_df <- data.frame(
     eta = numeric(0),
@@ -723,7 +723,7 @@ results_df_pois_1[order(results_df_pois_1$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
+  eta = 0.05,
   max_depth = c(2,3,4,5,6),
   gamma = 0,
   colsample_bytree =1,
@@ -740,11 +740,11 @@ results_df_pois_2[order(results_df_pois_2$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
+  eta = 0.05,
   max_depth = 3,
   gamma = 0,
   colsample_bytree = 1,
-  min_child_weight = c(1,2,3,4,5,6,7,8,9),
+  min_child_weight = c(11,12,13,14,15),
   subsample = 1,
   objective=c('count:poisson')
 )
@@ -755,11 +755,11 @@ results_df_pois_3[order(results_df_pois_3$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
+  eta = 0.05,
   max_depth = 3,
   gamma = 0,
   colsample_bytree = seq(0.4,1,0.1),
-  min_child_weight = 1,
+  min_child_weight = 12,
   subsample = seq(0.4,1,0.1),
   objective=c('count:poisson')
 )
@@ -770,11 +770,11 @@ results_df_pois_4[order(results_df_pois_4$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
+  eta = 0.05,
   max_depth = 3,
   gamma = seq(0,1,0.1),
-  colsample_bytree = 0.7,
-  min_child_weight = 1,
+  colsample_bytree = 0.5,
+  min_child_weight = 12,
   subsample = 0.9,
   objective=c('count:poisson')
 )
@@ -785,11 +785,11 @@ results_df_pois_5[order(results_df_pois_5$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
-  eta = 0.07,
+  eta = 0.05,
   max_depth = 3,
-  gamma = 0.7,
-  colsample_bytree = 0.7,
-  min_child_weight = 1,
+  gamma = 0,
+  colsample_bytree = 0.5,
+  min_child_weight = 12,
   subsample = 0.9,
   objective=c('count:poisson')
 )
@@ -803,11 +803,11 @@ lines(results_df_pois_6$nrounds,results_df_pois_6$mean_loss_test,col='red')
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
+  eta = 0.05,
   max_depth = 3,
-  gamma = 0.7,
-  colsample_bytree = 0.7,
-  min_child_weight = 1,
+  gamma = 0,
+  colsample_bytree = 0.5,
+  min_child_weight = 12,
   subsample = 0.9,
   objective=c('count:poisson')
 )
