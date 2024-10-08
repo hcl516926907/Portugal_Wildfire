@@ -8,6 +8,7 @@ library(cowplot)
 library(boot)
 library(scales)
 library(dplyr)
+library(leaflet)
 
 setwd('/home/pgrad2/2448355h/My_PhD_Project/Portugal_Wildfire/Shiny')
 dir.out <- '/home/pgrad2/2448355h/My_PhD_Project/01_Output/Urban_Fire_Model'
@@ -16,14 +17,24 @@ dir.out <- '/home/pgrad2/2448355h/My_PhD_Project/01_Output/Urban_Fire_Model'
 # load('Final_Model_3.2_pred.sp_1000.RData')
 # n.grid <- 192
 
-load(file.path(dir.out,'data.fit2.score_0.125.RData'))
-load(file.path(dir.out,'grid_cell_map_0.125.RData'))
-load(file.path(dir.out,'Model_weibull_0.125_pred_sp_200.RData'))
-n.grid <- 681
+# load(file.path(dir.out,'data.fit2.score_0.125.RData'))
+# load(file.path(dir.out,'grid_cell_map_0.125.RData'))
+# load(file.path(dir.out,'Model_weibull_0.125_pred_sp_200.RData'))
+
+load(file.path(dir.out, 'data.fit2.pred_0.0625.RData'))
+load(file=file.path(dir.out,'Model_weibull_0.125_pred_0.0625_pred_sp_200.RData'))
+load(file.path(dir.out,'grid_cell_map_0.0625.RData'))
+# n.grid <- 681
+n.grid <- 2554
 
 pred.cnt <- pred.sp$pred.cnt
 pred.ba <- pred.sp$pred.ba
-# pred.z <- pred.sp$pred.z
+pred.z <- pred.sp$pred.z
+param.cnt <- pred.sp$param.cnt
+param.z <- pred.sp$param.z
+param.ba <- pred.sp$param.ba
+hyper.ba <- pred.sp$hyper.ba
+
 rm(pred.sp)
 
 
@@ -66,44 +77,33 @@ conc$NAME_2<-as.factor(droplevels(conc$NAME_2))
 sf_conc <- st_as_sf(conc)
 ggplot(sf_conc)+ geom_sf()
 
-gt.u <- function(x, u){
-  return(mean(x>u))
-}
-
-gt.u.1 <- function(x, u){
-  return(x>u)
-}
-gt.u.2 <- function(x1, u1, x2, u2){
-  ind <- x1>u1 & x2>u2
-  return(sum(ind))
-}
 
 
-thres.exceed <- function(data, indices, thres) {
-  return(gt.u(data[indices],thres))
-}
+grid.cell.coord <- st_as_sf(data.fit2.pred, coords = c("lon.grid", "lat.grid"), crs = 4326)
+
+# merged_sf <- st_join(grid.cell.coord, sf_districts[,'NAME_1'], join = st_within)
+merged_sf1 <- st_drop_geometry(st_join(grid.cell.coord, sf_conc[,'NAME_2'], join = st_nearest_feature))
 
 
+B2_sf <- st_as_sf(B2.merge.pred)
 
-B2_sf <- st_as_sf(B2.merge)
 
-
-B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:108))
+B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 97:108))
 B2_sf$time.idx <- as.integer(substring(B2_sf$y.time.idx, 3, 5))
 
-B2_sf$log_ba <- data.fit2$log_ba
+data.fit2.pred[is.na(data.fit2.pred$log_ba),'log_ba'] <- 0
+B2_sf$log_ba <- data.fit2.pred$log_ba
 
+B2_sf <- merge(B2_sf,merged_sf1[,c('grid.idx','time.idx','NAME_2')],by=c('grid.idx','time.idx')) %>%
+         arrange(time.idx,grid.idx)
 
 
 
 ui <- fluidPage(
-  
-  
-  titlePanel("Forecasted Survival Probability"),
-  
+  titlePanel("Portugal Wildfire Analysis"),
   sidebarLayout(
+    
     sidebarPanel(
-      # Input for year selection
       selectInput("year", "Select Year:", 
                   choices = 2020, selected = 2020),
       
@@ -118,34 +118,37 @@ ui <- fluidPage(
       # Conditional input for count threshold
       conditionalPanel(
         condition = "input.type == 'count' || input.type == 'joint'",
-        numericInput("countThreshold", "Enter Count Threshold:", value = 1, min = 1, max=10)
+        numericInput("countThreshold", "Enter Count Threshold:", value = 0, min = 1, max=100)
       ),
       
       # Conditional input for burn area threshold
       conditionalPanel(
         condition = "input.type == 'burn_area' || input.type == 'joint'",
-        numericInput("burn_areaThreshold", "Enter Burn Area Threshold:", value = 10, min = 1, max=1000)
+        numericInput("burn_areaThreshold", "Enter Burn Area Threshold:", value = 10, min = 1, max=100000)
       ),
       
-      actionButton("generate", "Generate Map")
+      actionButton("generate", "Generate Map"),
+      h4("Click on a council to zoom in")
     ),
-    
-    
     mainPanel(
-      # Output map
-      card(plotOutput("map", height='90vh'))
-      # card(textOutput( "memory_usage "))
-    ),
-    
-    
-    
+      leafletOutput("portugalMap", height = "60vh"),
+      plotOutput("zoomedPlot", height = "40vh")
+    )
   )
 )
 
+server <- function(input, output, session) {
+  
+  labels <- c('Low','Low_Median','Median','Median_High',  'High')
+  breaks <- c(0, 0.05,0.1,0.25,0.5,1)
 
-
-# Server logic ----
-server <- function(input, output) {
+  low_colors <- colorRampPalette(c("#a1d99b", "#006d2c"))      # Light to dark green
+  median_colors <- colorRampPalette(c("#fed976", "#fd8d3c"))   # Light to dark orange
+  high_colors <- colorRampPalette(c("#fc9272", "#de2d26"))  
+  
+  low_median_colors <- colorRampPalette(c("#006d2c", "#fed976"))  # Dark green to light orange
+  median_high_colors <- colorRampPalette(c("#fd8d3c", "#fc9272")) 
+  
   
   Input.temp <- eventReactive(input$generate,{
     year <- as.integer(input$year)
@@ -162,43 +165,29 @@ server <- function(input, output) {
                     "October"=10,
                     "November"=11,
                     "December"=12)
-    # idx <- 12*(year-2012) + month
-    idx <- month
+    idx <- 12*(year-2012) + month
     B2_sf <- B2_sf[B2_sf$time.idx == idx, ]
     
-    pred.cnt.subset <- pred.cnt[(1:n.grid)+(idx-1)*n.grid]
-    pred.ba.subset <- pred.ba[(1:n.grid)+(idx-1)*n.grid]
-    
-
+    grid.month.idx <- (1+(month-1)*n.grid ): (month*n.grid)
     
     if (input$type=='count'){
       thres <- input$countThreshold
       
-      bootstrap_list <- lapply(pred.cnt.subset, function(sample) {
-        boot(data = sample, statistic = thres.exceed, R = length(pred.cnt.subset), thres=thres)
-      })
+      prob.mark.mat <- sapply(1:200, function(x) ppois(thres,param.cnt[[x]][grid.month.idx], lower.tail=FALSE))
+      prob.z.mat <- sapply(1:200, function(x) param.z[[x]][grid.month.idx])
+      prob.mat <- prob.z.mat*prob.mark.mat
       
-      prob = numeric(length(pred.cnt.subset))
-      prob.sd = numeric(length(pred.cnt.subset))
       
-      for (i in seq_along(bootstrap_list)) {
-        prob[i] <- bootstrap_list[[i]]$t0  
-        prob.sd[i] <- sd(bootstrap_list[[i]]$t)      
-      }
+      prob <- rowMeans(prob.mat)
+      prob.sd <- apply(prob.mat,1,sd)
+      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
       
       B2_sf$prob <- prob
-      
-      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
       B2_sf$neg.prob.sd.std <- 1- prob.sd.std
       
-      labels <- c('Low','Median','High')
-      prob.bin <- cut(prob, breaks = c(0, 0.05,0.2,1),labels=labels, include.lowest = TRUE)
+      prob.bin <- cut(prob, breaks = breaks,labels=labels, include.lowest = TRUE)
       B2_sf$prob.bin <- prob.bin
-      
-      low_colors <- colorRampPalette(c("#a1d99b", "#006d2c"))      # Light to dark green
-      median_colors <- colorRampPalette(c("#fed976", "#fd8d3c"))   # Light to dark orange
-      high_colors <- colorRampPalette(c("#fc9272", "#de2d26"))  
-      
+
       B2_sf <- B2_sf %>%
         group_by(prob.bin) %>%
         mutate(
@@ -206,39 +195,63 @@ server <- function(input, output) {
           color = case_when(
             prob.bin == "Low" ~ low_colors(100)[round(certainty)],
             prob.bin == "Median" ~ median_colors(100)[round(certainty)],
-            prob.bin == "High" ~ high_colors(100)[round(certainty)]
+            prob.bin == "High" ~ high_colors(100)[round(certainty)],
+            prob.bin == 'Low_Median' ~ low_median_colors(100)[round(certainty)],
+            prob.bin == 'Median_High' ~ median_high_colors(100)[round(certainty)]
           )
         ) %>%ungroup()
+      
+      
+      df.prob.councils <- cbind(st_drop_geometry(B2_sf[,'NAME_2']),prob.mat)
+      df.prob.councils.1 <- aggregate(.~NAME_2, df.prob.councils, mean)
+      
+      prob <- rowMeans(df.prob.councils.1[,c(-1)])
+      prob.sd <- apply(df.prob.councils.1[,c(-1)],1,sd)
+      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
+      
+      df.prob.councils.2 <-  data.frame('NAME_2'=df.prob.councils.1[,'NAME_2'])
+      df.prob.councils.2$prob <- prob
+      df.prob.councils.2$neg.prob.sd.std <- 1- prob.sd.std
+      
+      prob.bin <- cut(prob, breaks = breaks ,labels=labels, include.lowest = TRUE)
+      
+      df.prob.councils.2$prob.bin <- prob.bin
+      
+      df.prob.councils.2 <- df.prob.councils.2 %>%
+        group_by(prob.bin) %>%
+        mutate(
+          certainty = rescale(neg.prob.sd.std, to = c(1, 100)),
+          color = case_when(
+            prob.bin == "Low" ~ low_colors(100)[round(certainty)],
+            prob.bin == "Median" ~ median_colors(100)[round(certainty)],
+            prob.bin == "High" ~ high_colors(100)[round(certainty)],
+            prob.bin == 'Low_Median' ~ low_median_colors(100)[round(certainty)],
+            prob.bin == 'Median_High' ~ median_high_colors(100)[round(certainty)]
+          )
+        ) %>%ungroup()
+      
+      councils <- merge(sf_conc, df.prob.councils.2,by='NAME_2')
     }
     
     
     if (input$type=='burn_area'){
       thres <- log(max(input$burn_areaThreshold, 1))
       
-      bootstrap_list <- lapply(pred.ba.subset, function(sample) {
-        boot(data = sample, statistic = thres.exceed, R = length(pred.ba.subset), thres=thres)
-      })
+      prob.mark.mat <- sapply(1:200, function(x) ppois(thres,param.ba[[x]][grid.month.idx], lower.tail=FALSE))
+      prob.z.mat <- sapply(1:200, function(x) param.z[[x]][grid.month.idx])
+      prob.mat <- prob.z.mat*prob.mark.mat
       
-      prob = numeric(length(pred.ba.subset))
-      prob.sd = numeric(length(pred.ba.subset))
       
-      for (i in seq_along(bootstrap_list)) {
-        prob[i] <- bootstrap_list[[i]]$t0  
-        prob.sd[i] <- sd(bootstrap_list[[i]]$t)      
-      }
+      prob <- rowMeans(prob.mat)
+      prob.sd <- apply(prob.mat,1,sd)
+      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
       
       B2_sf$prob <- prob
-      
-      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
       B2_sf$neg.prob.sd.std <- 1- prob.sd.std
       
-      labels <- c('Low','Median','High')
-      prob.bin <- cut(prob, breaks = c(0, 0.1,0.2,1),labels=labels, include.lowest = TRUE)
+      prob.bin <- cut(prob, breaks = breaks ,labels=labels, include.lowest = TRUE)
       B2_sf$prob.bin <- prob.bin
       
-      low_colors <- colorRampPalette(c("#a1d99b", "#006d2c"))      # Light to dark green
-      median_colors <- colorRampPalette(c("#fed976", "#fd8d3c"))   # Light to dark orange
-      high_colors <- colorRampPalette(c("#fc9272", "#de2d26"))  
       
       B2_sf <- B2_sf %>%
         group_by(prob.bin) %>%
@@ -247,96 +260,163 @@ server <- function(input, output) {
           color = case_when(
             prob.bin == "Low" ~ low_colors(100)[round(certainty)],
             prob.bin == "Median" ~ median_colors(100)[round(certainty)],
-            prob.bin == "High" ~ high_colors(100)[round(certainty)]
+            prob.bin == "High" ~ high_colors(100)[round(certainty)],
+            prob.bin == 'Low_Median' ~ low_median_colors(100)[round(certainty)],
+            prob.bin == 'Median_High' ~ median_high_colors(100)[round(certainty)]
           )
-        ) %>% ungroup()
+        ) %>%ungroup()
+      
+      
+      df.prob.councils <- cbind(st_drop_geometry(B2_sf[,'NAME_2']),prob.mat)
+      df.prob.councils.1 <- aggregate(.~NAME_2, df.prob.councils, mean)
+      
+      prob <- rowMeans(df.prob.councils.1[,c(-1)])
+      prob.sd <- apply(df.prob.councils.1[,c(-1)],1,sd)
+      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
+      
+      df.prob.councils.2 <-  data.frame('NAME_2'=df.prob.councils.1[,'NAME_2'])
+      df.prob.councils.2$prob <- prob
+      df.prob.councils.2$neg.prob.sd.std <- 1- prob.sd.std
+      
+      prob.bin <- cut(prob, breaks = breaks ,labels=labels, include.lowest = TRUE)
+      
+      df.prob.councils.2$prob.bin <- prob.bin
+      
+      df.prob.councils.2 <- df.prob.councils.2 %>%
+        group_by(prob.bin) %>%
+        mutate(
+          certainty = rescale(neg.prob.sd.std, to = c(1, 100)),
+          color = case_when(
+            prob.bin == "Low" ~ low_colors(100)[round(certainty)],
+            prob.bin == "Median" ~ median_colors(100)[round(certainty)],
+            prob.bin == "High" ~ high_colors(100)[round(certainty)],
+            prob.bin == 'Low_Median' ~ low_median_colors(100)[round(certainty)],
+            prob.bin == 'Median_High' ~ median_high_colors(100)[round(certainty)]
+          )
+        ) %>%ungroup()
+      
+      councils <- merge(sf_conc, df.prob.councils.2,by='NAME_2')
       
     }
     if (input$type=='joint'){
       thres.ba <- log(max(input$burn_areaThreshold, 1))
       thres.cnt <- input$countThreshold
-      excd.ba <- sapply(pred.ba.subset, gt.u.1, thres.ba) 
-      excd.cnt <- sapply(pred.ba.subset, gt.u.1, thres.cnt) 
-      B2_sf$prob <- colMeans(excd.ba & excd.cnt) 
+      
+      prob.mark.mat1 <- sapply(1:200, function(x) ppois(thres.ba, param.cnt[[x]][grid.month.idx], lower.tail=FALSE))
+      prob.mark.mat2 <- sapply(1:200, function(x) ppois(thres.cnt, param.ba[[x]][grid.month.idx], lower.tail=FALSE))
+      prob.z.mat <- sapply(1:200, function(x) param.z[[x]][grid.month.idx])
+      prob.mat <- prob.z.mat*prob.mark.mat1*prob.mark.mat2
+      
+      prob <- rowMeans(prob.mat)
+      prob.sd <- apply(prob.mat,1,sd)
+      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
+      
+      B2_sf$prob <- prob
+      B2_sf$neg.prob.sd.std <- 1- prob.sd.std
+      
+      prob.bin <- cut(prob, breaks = breaks,labels=labels, include.lowest = TRUE)
+      B2_sf$prob.bin <- prob.bin
+
+      
+      B2_sf <- B2_sf %>%
+        group_by(prob.bin) %>%
+        mutate(
+          certainty = rescale(neg.prob.sd.std, to = c(1, 100)),
+          color = case_when(
+            prob.bin == "Low" ~ low_colors(100)[round(certainty)],
+            prob.bin == "Median" ~ median_colors(100)[round(certainty)],
+            prob.bin == "High" ~ high_colors(100)[round(certainty)],
+            prob.bin == 'Low_Median' ~ low_median_colors(100)[round(certainty)],
+            prob.bin == 'Median_High' ~ median_high_colors(100)[round(certainty)]
+          )
+        ) %>%ungroup()
+      
+      df.prob.councils <- cbind(st_drop_geometry(B2_sf[,'NAME_2']),prob.mat)
+      df.prob.councils.1 <- aggregate(.~NAME_2, df.prob.councils, mean)
+      
+      prob <- rowMeans(df.prob.councils.1[,c(-1)])
+      prob.sd <- apply(df.prob.councils.1[,c(-1)],1,sd)
+      prob.sd.std <- (prob.sd - min(prob.sd))/max(prob.sd)
+      
+      df.prob.councils.2 <-  data.frame('NAME_2'=df.prob.councils.1[,'NAME_2'])
+      df.prob.councils.2$prob <- prob
+      df.prob.councils.2$neg.prob.sd.std <- 1- prob.sd.std
+      
+      prob.bin <- cut(prob, breaks = breaks ,labels=labels, include.lowest = TRUE)
+      
+      df.prob.councils.2$prob.bin <- prob.bin
+      
+      df.prob.councils.2 <- df.prob.councils.2 %>%
+        group_by(prob.bin) %>%
+        mutate(
+          certainty = rescale(neg.prob.sd.std, to = c(1, 100)),
+          color = case_when(
+            prob.bin == "Low" ~ low_colors(100)[round(certainty)],
+            prob.bin == "Median" ~ median_colors(100)[round(certainty)],
+            prob.bin == "High" ~ high_colors(100)[round(certainty)],
+            prob.bin == 'Low_Median' ~ low_median_colors(100)[round(certainty)],
+            prob.bin == 'Median_High' ~ median_high_colors(100)[round(certainty)]
+          )
+        ) %>%ungroup()
+      
+      councils <- merge(sf_conc, df.prob.councils.2,by='NAME_2')
+      
     }
     
     list('B2_sf'= B2_sf,
-         'type'= input$type)
-
+         'type'= input$type,
+         'councils'=councils)
+    
   })
   
-
-
-  output$map <- renderPlot({
-    req(Input.temp())
-
-    csc.scale.fix <- scale_fill_gradient( low = "#F7F7F7", high = "#E4003A", limits = c(0,1))
-    
-    csc.scale.dym <- scale_fill_gradient( low = "#F7F7F7", high = "#E4003A", limits = c(min(Input.temp()$B2_sf$prob), max(Input.temp()$B2_sf$prob)))
-    
-   # Light to dark red
-    
-    
-    p1 <- ggplot(data=sf_conc) + 
-      geom_sf(data=Input.temp()$B2_sf, aes(fill = prob),lwd = 0.01) +
-      geom_sf(alpha=0) +
-      theme(legend.position = "right",
-            axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
-            # axis.text.y = element_blank(),
-            # axis.ticks = element_blank()
-      )+ 
-      csc.scale.fix +
-      labs(fill  = "Prob",title='Prob on [0,1]' )
-    
-    # p2 <- ggplot(data=sf_districts) + 
-    #   geom_sf(data=Input.temp()$B2_sf, aes(fill = prob),lwd = 0.01) +
-    #   geom_sf(alpha=0) +
-    #   theme(legend.position = "right",
-    #         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
-    #         # axis.text.y = element_blank(),
-    #         # axis.ticks = element_blank()
-    #   )+ csc.scale.dym + 
-    #   labs(fill  = "Prob",title='Prob rescaled' )
-    # legend_df <- expand.grid(
-    #   prob = c("Low", "Median", "High"),
-    #   inv.std = seq(0, 1, length.out = 100)
-    # ) %>% group_by(prob) %>% mutate(
-    #     color = case_when(
-    #       prob == "Low" ~ low_colors(100),
-    #       prob == "Median" ~ median_colors(100),
-    #       prob == "High" ~ high_colors(100)
-    #     )
-    #   )%>% ungroup()
-    # 
-    p2 <- ggplot(sf_conc) +
-      geom_sf(data=Input.temp()$B2_sf, aes(fill = color),lwd = 0.01) +
-      scale_fill_identity() +
-      geom_sf(alpha=0) +
-      
-      # geom_tile(data = legend_df, aes(x = prob, y = inv.std, fill = color)) +
-      # facet_grid(~ prob, scales = "free", space = "free") +
-      
-      theme(legend.position = "right",
-            axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
-            # axis.text.y = element_blank(),
-            # axis.ticks = element_blank()
-      )+ 
-      labs(fill  = "Prob",title='Prob with Certainty' )
-    
-    p <- plot_grid(p1, p2, align = "h", nrow = 1)
-    
-    if (Input.temp()$type=='count'){
-      text <- 'P(Count > thres.cnt)'
-    }else if (Input.temp()$type=='burn_area'){
-      text <- 'P(Burn Area > thres.ba)'
-    }else{
-      text <- 'P(Count > thres.cnt, Burn Area > thres.ba)'
-    }
-    title <- ggdraw() + draw_label(text, fontface='bold')
-    plot_grid(title, p,  align = "v", nrow = 2, rel_heights = c(0.1, 1))
+  
+  # Render the initial map with council boundaries
+  output$portugalMap <- renderLeaflet({
+    leaflet(Input.temp()$councils) %>%
+      addTiles() %>%
+      addPolygons(
+        layerId = ~NAME_2,  # Replace 'NAME' with the column name containing council names
+        fillColor = ~color,
+        weight = 1,
+        opacity = 1,
+        color = "white",
+        fillOpacity = 0.5
+      )
   })
-
+  
+  # Observe click events on the map
+  observeEvent(input$portugalMap_shape_click, {
+    click <- input$portugalMap_shape_click
+    if (is.null(click)) return()
+    
+    # Get the name of the clicked council
+    selected_council <- click$id
+    
+    # Filter spatial data for the selected council
+    council_data <- Input.temp()$councils[Input.temp()$councils$NAME_2 == selected_council, ]  # Replace 'NAME' with appropriate column
+    
+    # Generate zoomed-in plot for the selected council
+    output$zoomedPlot <- renderPlot({
+      # ggplot() +
+      #   geom_sf(data = council_data, fill = "red", color = "black", size = 0.5) +
+      #   ggtitle(paste("Zoomed-in Plot for", selected_council)) +
+      #   theme_minimal()
+      
+      B2_sf_input <- Input.temp()$B2_sf
+      ggplot(council_data)+
+        geom_sf(data=B2_sf_input[B2_sf_input$NAME_2==selected_council,], aes(fill = color),lwd = 0.01) +
+        scale_fill_identity()+
+        geom_sf(alpha=0) +
+        theme(legend.position = "right",
+              axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+              # axis.text.y = element_blank(),
+              # axis.ticks = element_blank()
+        )+ 
+        labs(fill  = "Prob",title=paste('Probability in',selected_council ))
+    })
+  })
 }
 
-# Run app ----
-shinyApp(ui, server)
+
+
+shinyApp(ui = ui, server = server)

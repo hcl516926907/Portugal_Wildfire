@@ -401,6 +401,8 @@ nothing2 <- rep(NA, n1)
 
 data.fit2 <- data.fit2[order(data.fit2$time.idx),]
 
+save(data.fit2, file=file.path(dir.out, 'data.fit2.score_0.25.RData'))
+
 
 coo <- as.matrix(data.fit2[,c('grid.cent.x.utm','grid.cent.y.utm')])
 # mesh.spat <- inla.mesh.2d(
