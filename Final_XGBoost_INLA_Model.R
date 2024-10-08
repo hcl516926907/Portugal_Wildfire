@@ -92,13 +92,13 @@ f.get.cov <- function(dataset, cov.name){
 B <- SpatialPolygonsDataFrame(domainSP, data.frame('weight'=1), match.ID = F) 
 
 
-grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
-                                cellsize = c(0.0625,0.0625),
-                                cells.dim = c(68, 116)))
-
 # grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
-#                                 cellsize = c(0.125,0.125),
-#                                 cells.dim = c(34, 58)))
+#                                 cellsize = c(0.0625,0.0625),
+#                                 cells.dim = c(68, 116)))
+
+grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
+                                cellsize = c(0.125,0.125),
+                                cells.dim = c(34, 58)))
 
 # grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
 #                                 cellsize = c(0.25,0.25),
@@ -142,8 +142,8 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 #####################################################################
 # XGBoost
 #####################################################################
-# 
-# data.fit2 <- do.call(rbind, lapply(1:108, function(x) {B2@data$time.idx = x 
+# # 
+# data.fit2 <- do.call(rbind, lapply(1:108, function(x) {B2@data$time.idx = x
 # return(B2@data)}))
 # print(dim(data.fit2))
 # data.fit2 <- merge(data.fit2, data.fit.ba[,c('grid.idx','time.idx','year.idx', 'month.idx','y','area_ha','log_ba')],
@@ -159,15 +159,15 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # data.fit2$month.idx <- (data.fit2$time.idx-1)%%12 + 1
 # data.fit2$year.idx <- (data.fit2$time.idx-1)%/%12 + 1
 # data.fit2$E1 <- 1
-# # 
+# #
 # 
 # f.get.cov <- function(dataset, cov.name){
 #   time <- dataset$time.idx
-#   
+# 
 #   x <- dataset$grid.cent.x.utm
 #   y <- dataset$grid.cent.y.utm
-#   
-#   
+# 
+# 
 #   spp <- SpatialPoints(data.frame(x=x,y=y),
 #                        proj4string=CRS('+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs' ))
 #   spp <- spTransform(spp, CRS("EPSG:4326"))
@@ -182,7 +182,7 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 #   }
 #   return(v)
 # }
-# # 
+# #
 # data.fit2$FWI <- f.get.cov(data.fit2,'fwi')
 # data.fit2$HVegCov <- f.get.cov(data.fit2,'HVegCov')
 # data.fit2$HVegLAI <- f.get.cov(data.fit2, 'HVegLAI')
@@ -198,7 +198,7 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # data.fit2$sqrt_ba <- sqrt(data.fit2$area_ha)
 # data.fit2[is.na(data.fit2$sqrt_ba), 'sqrt_ba'] <- 0
 # data.fit2$z <- as.vector((data.fit2$y>0)+0)
-# 
+# #
 # covar.names <- c('FWI','HVegCov','HVegLAI','LVegCov','LVegLAI','Pricp','RHumi','Temp',
 #                  'UComp','VComp')
 # for (var in covar.names ){
@@ -210,11 +210,11 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 #                  'month.idx')
 # 
 # data.rf <- data.fit2[data.fit2$time.idx <= 96, c(covar.names,'grid.idx','time.idx','year.idx','area_ha','z','y')]
-
-
-
-
 # 
+# 
+# 
+# 
+# #
 # library(xgboost)
 # # library(caret)
 # library(pROC)
@@ -224,44 +224,44 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # kfold_cv_pred  <- function(data, target.name ,covar.names, params, k) {
 #   auc_train_list <- numeric(k)
 #   auc_test_list <- numeric(k)
-#   
+# 
 #   for (i in 1:k) {
 #     index <- which(data$year.idx==i)
 #     train_data <- data[-index, covar.names ]
 #     train_target <- data[-index, target.name]
 #     test_data <- data[index, covar.names]
 #     test_target <- data[index, target.name ]
-#     
+# 
 #     dtrain <- xgb.DMatrix(data = as.matrix(train_data), label = train_target)
 #     dtest <- xgb.DMatrix(data = as.matrix(test_data), label = test_target)
-#     
+# 
 #     set.seed(1234)
 #     model <- xgb.train(params = params, data = dtrain, nrounds = params$nrounds)
-#     
+# 
 #     train_pred <- predict(model, dtrain)
 #     test_pred <- predict(model, dtest)
-#     
+# 
 #     data[index,'score'] <- test_pred
 #   }
-#   
-#   
+# 
+# 
 #   return(data$score)
 # }
 # 
 # params_z <- list(
-#   nrounds = 70,
+#   nrounds = 100,
 #   eta = 0.06,
-#   max_depth = 4,
-#   gamma = 0,
-#   scale_pos_weight = 250,
+#   max_depth = 3,
+#   gamma = 0.2,
+#   scale_pos_weight = 75,
 #   colsample_bytree = 0.7,
-#   min_child_weight = 1,
-#   subsample = 0.7,
+#   min_child_weight = 7,
+#   subsample = 0.9,
 #   objective = "binary:logistic",
 #   eval_metric = "auc",
 #   verbosity = 0
 # )
-# 
+# #
 # data.rf$score_z <- kfold_cv_pred(data.rf, 'z', covar.names ,params_z, 8)
 # 
 # 
@@ -273,17 +273,17 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # data.fit2[data.fit2$time.idx <= 96, 'score_z'] <- data.rf$score_z
 # data.fit2[data.fit2$time.idx > 96, 'score_z'] <- predict(model.z, as.matrix(data.fit2[data.fit2$time.idx > 96,c(covar.names)]))
 # 
-# 
-# 
-# # with coordiantes
+# #
+# #
+# # # with coordiantes
 # params_ba <- list(
 #   nrounds = 60,
-#   eta = 0.09,
+#   eta = 0.06,
 #   max_depth = 2,
-#   gamma = 0.4,
-#   colsample_bytree = 0.8,
-#   min_child_weight = 1,
-#   subsample = 0.9,
+#   gamma = 0.6,
+#   colsample_bytree = 0.9,
+#   min_child_weight = 2,
+#   subsample = 0.6,
 #   objective=c('reg:squarederror')
 # )
 # 
@@ -299,24 +299,24 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 #     train_data <- train_data[pos.ind.train,]
 #     train_target <- train_target[pos.ind.train]
 #     # print(table(data[-index,'grid.idx']))
-#     
+# 
 #     test_data <- data[index, covar.names]
 #     test_target <- data[index, target.name ]
-#     
-#     
+# 
+# 
 #     dtrain <- xgb.DMatrix(data = as.matrix(train_data), label = train_target)
 #     dtest <- xgb.DMatrix(data = as.matrix(test_data), label = test_target)
-#     
+# 
 #     set.seed(1234)
 #     model <- xgb.train(params = params, data = dtrain, nrounds = params$nrounds)
-#     
+# 
 #     train_pred <- predict(model, dtrain)
 #     test_pred <- predict(model, dtest)
-#     
+# 
 #     data[index, 'score'] <- test_pred
 #   }
-#   
-#   
+# 
+# 
 #   return(data$score)
 # }
 # 
@@ -324,7 +324,7 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # data.rf$score_ba <- kfold_cv_pred_pos(data.rf,'log_ba',covar.names, params_ba, 8)
 # 
 # TrainSet2 <- xgb.DMatrix(data=as.matrix(data.rf[data.rf$y>0, c(covar.names)]),label=data.rf[data.rf$y>0, c('log_ba')])
-# # 
+# #
 # set.seed(1234)
 # model.ba <- xgb.train(params = params_ba, data = TrainSet2, nrounds = params_ba$nrounds)
 # 
@@ -336,11 +336,11 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # 
 # params_cnt <- list(
 #   nrounds = 100,
-#   eta = 0.07,
+#   eta = 0.05,
 #   max_depth = 3,
-#   gamma = 0.7,
-#   colsample_bytree = 0.7,
-#   min_child_weight = 1,
+#   gamma = 0,
+#   colsample_bytree = 0.5,
+#   min_child_weight = 12,
 #   subsample = 0.9,
 #   objective=c('count:poisson')
 # )
@@ -359,7 +359,6 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # 
 # 
 # 
-# 
 # data.fit2[is.na(data.fit2$log_ba),'log_ba'] <- 0
 # 
 # auc(data.fit2[data.fit2$year.idx<=8,'z'], data.fit2[data.fit2$year.idx<=8,'score_z'], quiet = TRUE)
@@ -372,12 +371,19 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # sum((data.fit2[data.fit2$year.idx<=8 & data.fit2$y>0,'y']-data.fit2[data.fit2$year.idx<=8 & data.fit2$y>0,'score_cnt'])^2)/sum(data.fit2$year.idx<=8)
 # sum((data.fit2[data.fit2$year.idx>8 & data.fit2$y>0,'y']-data.fit2[data.fit2$year.idx>8 & data.fit2$y>0,'score_cnt'])^2)/sum(data.fit2$year.idx>8)
 # 
-
+# 
 # data.fit2 <- data.fit2[order(data.fit2$time.idx),]
+
+
+
 # save(data.fit2, file=file.path(dir.out, 'data.fit2.score_0.0625.RData'))
+# load(file.path(dir.out, 'data.fit2.score_0.0625.RData'))
 
-load(file.path(dir.out, 'data.fit2.score_0.0625.RData'))
 
+# save(data.fit2, file=file.path(dir.out, 'data.fit2.score_0.125.RData'))
+# load(file.path(dir.out, 'data.fit2.score_0.125.RData'))
+
+load(file.path(dir.out, 'data.fit2.score_0.25.RData'))
 
 ####################################################################
 # INLA
@@ -391,7 +397,7 @@ data.fit3 <- reshape(data.fit2[,c('grid.idx','time.idx','y')],
 
 B2.merge <- merge(B2, data.fit3, by = "grid.idx")
 
-save(B2.merge, file=file.path(dir.out, 'grid_cell_map.RData'))
+# save(B2.merge, file=file.path(dir.out, 'grid_cell_map_0.125.RData'))
 
 B2.adj <- poly2nb(B2)
 nb2INLA("map.adj", B2.adj)
@@ -405,9 +411,9 @@ cnt <- as.vector(ifelse(data.fit2$y>0, data.fit2$y, NA))
 #
 
 #prepare for prediction
-z[which(data.fit2$time.idx>=85)] <- NA
-log.ba[which(data.fit2$time.idx>=85)] <- NA
-cnt[which(data.fit2$time.idx>=85)] <- NA
+z[which(data.fit2$time.idx>=97)] <- NA
+log.ba[which(data.fit2$time.idx>=97)] <- NA
+cnt[which(data.fit2$time.idx>=97)] <- NA
 
 
 
@@ -415,15 +421,22 @@ cnt[which(data.fit2$time.idx>=85)] <- NA
 
 coo <- as.matrix(data.fit2[,c('grid.cent.x.utm','grid.cent.y.utm')])
 
+# mesh.spat <- inla.mesh.2d(
+#   # loc = coo,
+#   boundary = domainSP,
+#   offset = c(20, 30),
+#   cutoff = 1, max.edge = c(40, 60)
+# )
+
 mesh.spat <- inla.mesh.2d(
   # loc = coo,
   boundary = domainSP,
   offset = c(20, 30),
-  cutoff = 1, max.edge = c(40, 60)
+  cutoff = 1, max.edge = c(20, 30)
 )
 
 plot(mesh.spat)
-points(coo, col = "red")
+points(coo, col = "red",pch=19,cex=0.1)
 
 mesh.spat$n
 
@@ -443,86 +456,237 @@ indexs.3 <- inla.spde.make.index("spat3", spde.spat$n.spde)
 A.spat.3 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
 
 
-mesh_score_1 <- inla.mesh.1d(c(1.02, 1.05, 1.1,  1.2),boundary=c('free','free')) 
-A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit2$score_cnt)
-spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1, 
-                                     prior.range = c(0.3, 0.05),
-                                     prior.sigma = c(1, 0.05))
-# spde_score_1 <-  inla.spde2.matern(mesh_score_1, constr = TRUE)
+resolution <- "0.25"
+if (resolution=='0.125'){
+  mesh_score_1 <- inla.mesh.1d(c(0.93, 0.99, 1.03,  1.06, 1.5 , 1.8),boundary=c('free','free')) 
+  A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit2$score_cnt)
+  spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1, 
+                                       prior.range = c(0.3, 0.1),
+                                       prior.sigma = c(1, 0.05))
+  # spde_score_1 <-  inla.spde2.matern(mesh_score_1, constr = TRUE)
+  
+  spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
+  
+  mesh_score_2 <- inla.mesh.1d(c(0.02, 0.1,0.2,0.4,0.6,0.8,0.9),boundary=c('free','free'))
+  # mesh_score_2 <- inla.mesh.1d(seq(0, 1, by = 0.2),boundary=c('dirichlet','dirichlet'))
+  A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit2$score_z)
+  spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2, 
+                                       prior.range = c(0.2, 0.05),
+                                       prior.sigma = c(1, 0.05))
+  # spde_score_2 <-  inla.spde2.matern(mesh_score_2, constr = TRUE)
+  spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
+  
+  
+  mesh_score_3 <- inla.mesh.1d(c(2.5, 3.2, 3.7, 5.5),boundary=c('free','free'))
+  # mesh_score_3 <- inla.mesh.1d(seq(0, 7, by = 1),boundary=c('dirichlet','free'))
+  A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit2$score_ba)
+  spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3, 
+                                       prior.range = c(1.5, 0.1),
+                                       prior.sigma = c(1, 0.05))
+  # spde_score_3 <-  inla.spde2.matern(mesh_score_3, constr = TRUE)
+  spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
+}
 
-spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
+if (resolution =='0.25'){
+  mesh_score_1 <- inla.mesh.1d(c(0.9,1.1,1.2, 1.3,1.6,1.9),boundary=c('free','free')) 
+  A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit2$score_cnt)
+  spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1, 
+                                       prior.range = c(0.3, 0.3),
+                                       prior.sigma = c(1, 0.05))
+  # spde_score_1 <-  inla.spde2.matern(mesh_score_1, constr = TRUE)
+  
+  spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
+  
+  mesh_score_2 <- inla.mesh.1d(c(0.03,0.05, 0.1,0.2,0.4,0.6,0.8),boundary=c('free','free'))
+  # mesh_score_2 <- inla.mesh.1d(seq(0, 1, by = 0.2),boundary=c('dirichlet','dirichlet'))
+  A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit2$score_z)
+  spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2, 
+                                       prior.range = c(0.2, 0.3),
+                                       prior.sigma = c(1, 0.05))
+  # spde_score_2 <-  inla.spde2.matern(mesh_score_2, constr = TRUE)
+  spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
+  
+  
+  mesh_score_3 <- inla.mesh.1d(c(2.2, 3, 3.4, 4, 5),boundary=c('free','free'))
+  # mesh_score_3 <- inla.mesh.1d(seq(0, 7, by = 1),boundary=c('dirichlet','free'))
+  A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit2$score_ba)
+  spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3, 
+                                       prior.range = c(1, 0.3),
+                                       prior.sigma = c(1, 0.05))
+  # spde_score_3 <-  inla.spde2.matern(mesh_score_3, constr = TRUE)
+  spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
+  
+}
 
-mesh_score_2 <- inla.mesh.1d(c(0.05, 0.1,0.2,0.4,0.6,0.8,0.9),boundary=c('free','free'))
-# mesh_score_2 <- inla.mesh.1d(seq(0, 1, by = 0.2),boundary=c('dirichlet','dirichlet'))
-A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit2$score_z)
-spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2, 
-                                     prior.range = c(0.2, 0.05),
-                                     prior.sigma = c(1, 0.05))
-# spde_score_2 <-  inla.spde2.matern(mesh_score_2, constr = TRUE)
-spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
 
-
-mesh_score_3 <- inla.mesh.1d(c(1.6, 2.8, 3.3, 3.7, 5, 7),boundary=c('free','free'))
-# mesh_score_3 <- inla.mesh.1d(seq(0, 7, by = 1),boundary=c('dirichlet','free'))
-A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit2$score_ba)
-spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3, 
-                                     prior.range = c(0.5, 0.05),
-                                     prior.sigma = c(1, 0.05))
-# spde_score_3 <-  inla.spde2.matern(mesh_score_3, constr = TRUE)
-spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
 
 
 cnt.stack <- inla.stack(
   data= list(Y.log=cbind(cnt,NA,NA)),
-  A <- list(1,1,A1,A.spat.1),
-  effect = list(Intercept1=rep(1,nrow(data.fit2)),  time.idx1=data.fit2$month.idx, score_1=spde_score_1.idx,
-                 spat1=indexs.1),
+  A <- list(1,1,1,A1,A.spat.1),
+  effect = list(Intercept1=rep(1,nrow(data.fit2)), idarea1=data.fit2$grid.idx, time.idx1=data.fit2$month.idx, score_1=spde_score_1.idx,
+                spat1=indexs.1),
   tag='cnt'
 )
 
-
 z.stack <- inla.stack(
   data= list(Y.log=cbind(NA,z,NA)),
-  A <- list(1,1,A2,A.spat.2),
-  effect = list(Intercept2=rep(1,nrow(data.fit2)),  time.idx2=data.fit2$month.idx, score_2=spde_score_2.idx,
+  A <- list(1,1,1,A2,A.spat.2),
+  effect = list(Intercept2=rep(1,nrow(data.fit2)), idarea2=data.fit2$grid.idx, time.idx2=data.fit2$month.idx, score_2=spde_score_2.idx,
                  spat2=indexs.2),
   tag='z'
 )
 
 
-
-
 ba.stack <- inla.stack(
   data= list(Y.log=cbind(NA,NA,log.ba)),
-  A <- list(1,1, A3,A.spat.3),
-  effect = list(Intercept3=rep(1,nrow(data.fit2)), time.idx3=data.fit2$month.idx, score_3=spde_score_3.idx,
+  A <- list(1,1,1, A3,A.spat.3),
+  effect = list(Intercept3=rep(1,nrow(data.fit2)), idarea3=data.fit2$grid.idx, time.idx3=data.fit2$month.idx, score_3=spde_score_3.idx,
                 spat3=indexs.3),
   tag='ba'
 )
 
 
-
 all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
 
 
 
+########-----------------------Prepare prediction data------------------------
+# grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
+#                                 cellsize = c(0.0625,0.0625),
+#                                 cells.dim = c(68, 116)))
+grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
+                                cellsize = c(0.125,0.125),
+                                cells.dim = c(34, 58)))
 
-all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
+
+grd_sp <- SpatialPixelsDataFrame(points = grd, data = data.frame(grid.idx = 1:length(grd)),proj4string = CRS("+proj=longlat +datum=WGS84"))
+
+grd_poly <- as(grd_sp, 'SpatialPolygonsDataFrame')
+grd_poly <- spTransform(grd_poly, CRS(projutm))
+grd_poly$lon.grid <- grd_sp@coords[,1]
+grd_poly$lat.grid <- grd_sp@coords[,2]
+
+B2.pred <- as_Spatial(st_intersection(st_as_sf(grd_poly),st_as_sf(B)))
+coord.cent <- st_coordinates(st_centroid(st_as_sf(B2.pred)))
+B2.pred$grid.cent.x.utm <- coord.cent[,1]
+B2.pred$grid.cent.y.utm <- coord.cent[,2]
+B2.pred$E <- area(B2.pred)
+
+B2.pred$grid.idx <- 1:nrow(B2.pred)
+
+
+ggplot(st_as_sf(B2.pred)) + geom_sf(aes(fill=grid.idx))
+
+
+
+
+data.merge.pred <- B2.pred |>  
+  st_as_sf() |> # cast to sf
+  mutate(grid_id = row_number()) |> # create unique ID
+  st_join(loc.data.utm) |> # join the species dataset
+  group_by(grid_id)
+
+
+data.fit.ba.pred <- data.merge.pred %>% st_drop_geometry() %>% filter( time.idx<=108, length >=24*60 )%>% 
+  group_by(grid.idx,grid_id, year.idx, month.idx, time.idx) %>%
+  summarise(area_ha = sum(area_ha), 
+            log_ba = log(area_ha),
+            y = n(),
+            lon.grid = mean(lon.grid),
+            lat.grid = mean(lat.grid),
+            x.utm = mean(grid.cent.x.utm),
+            y.utm = mean(grid.cent.y.utm),
+            E = mean(E))
+
+
+
+data.fit2.pred <- do.call(rbind, lapply(97:108, function(x) {B2.pred@data$time.idx = x
+return(B2.pred@data)}))
+print(dim(data.fit2.pred))
+data.fit2.pred <- merge(data.fit2.pred, data.fit.ba.pred[,c('grid.idx','time.idx','year.idx', 'month.idx','y','area_ha','log_ba')],
+                        by=c('grid.idx','time.idx'),all.x=T)
+
+
+print(dim(data.fit2.pred))
+data.fit2.pred[is.na(data.fit2.pred$y),'y'] <- 0
+summary(data.fit2.pred$y)
+
+data.fit2.pred$month.idx <- (data.fit2.pred$time.idx-1)%%12 + 1
+data.fit2.pred$year.idx <- (data.fit2.pred$time.idx-1)%/%12 + 1
+data.fit2.pred$E1 <- 1
+
+data.fit2.pred.sf <- st_as_sf(data.fit2.pred, coords=c('grid.cent.x.utm','grid.cent.y.utm'),crs='+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs')
+data.fit2.sf <- st_as_sf(data.fit2, coords=c('grid.cent.x.utm','grid.cent.y.utm'),crs='+proj=utm +zone=29 +datum=WGS84 +units=km +no_defs')
+
+
+for (time.idx in 97:108){
+  data.fit2.pred[data.fit2.pred$time.idx==time.idx,
+                 c('score_z','score_ba','score_cnt')] <- st_join(data.fit2.pred.sf[data.fit2.pred.sf$time.idx==time.idx,], 
+                                                                 data.fit2.sf[data.fit2.sf$time.idx==time.idx,c('score_z','score_ba','score_cnt')], 
+                                                                 join = st_nearest_feature) |> st_drop_geometry()|> dplyr::select(score_z,score_ba,score_cnt)
+}
+
+data.fit2.pred <- data.fit2.pred[order(data.fit2.pred$time.idx),]
+
+data.fit2.pred[is.na(data.fit2.pred$log_ba),'log_ba'] <- 0
+
+# ggplot(data.fit2.sf[data.fit2.sf$time.idx==104,]) + geom_sf(aes(fill=score_z,color=score_z))
+# ggplot(data.fit2.pred.sf[data.fit2.pred.sf$time.idx==104,]) + geom_sf(aes(fill=score_z,color=score_z))
+# 
+
+coo.pred <- as.matrix(data.fit2.pred[,c('grid.cent.x.utm','grid.cent.y.utm')])
+
+
+A.spat.1.pred <- inla.spde.make.A(mesh = mesh.spat, loc = coo.pred)
+
+A.spat.2.pred <- inla.spde.make.A(mesh = mesh.spat, loc = coo.pred)
+
+A.spat.3.pred <- inla.spde.make.A(mesh = mesh.spat, loc = coo.pred)
+
+
+A1.pred <- inla.spde.make.A(mesh_score_1, loc=data.fit2.pred$score_cnt)
+
+A2.pred <- inla.spde.make.A(mesh_score_2, loc=data.fit2.pred$score_z)
+
+A3.pred <- inla.spde.make.A(mesh_score_3, loc=data.fit2.pred$score_ba)
+
+
+data.fit3.pred <- reshape(data.fit2.pred[,c('grid.idx','time.idx','y')],
+                          timevar = "time.idx",
+                          idvar = "grid.idx",
+                          direction = "wide"
+)
+
+B2.merge.pred <- merge(B2.pred, data.fit3.pred, by = "grid.idx")
+
+# save(B2.merge.pred, file=file.path(dir.out, 'grid_cell_map_0.0625.RData'))
+# save(data.fit2.pred, A.spat.1.pred, A.spat.2.pred, 
+#      A.spat.3.pred, A1.pred, A2.pred, A3.pred,
+#      file=file.path(dir.out, 'data.fit2.pred_0.0625.RData'))
+
+# save(B2.merge.pred, file=file.path(dir.out, 'grid_cell_map_0.125.RData'))
+# save(data.fit2.pred, A.spat.1.pred, A.spat.2.pred,
+#      A.spat.3.pred, A1.pred, A2.pred, A3.pred,
+#      file=file.path(dir.out, 'data.fit2.pred_0.125.RData'))
+#--------------------------------------------------------------
+
+
 n1 <- dim(data.fit2)[1]
 
 
 hyper.rw <-  list(prec = list(prior="loggamma",param=c(1,1)))
 
+# 
+formula <- Y.log ~  -1  +
+  Intercept1 + f(spat1, copy='spat2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
+  Intercept2 + f(spat2, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+  Intercept3 + f(spat3, copy='spat2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
 
 # formula <- Y.log ~  -1  +
-#   Intercept1 + f(spat1, copy='spat2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
-#   Intercept2 + f(spat2, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
-#   Intercept3 + f(spat3, copy='spat2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
-
-formula <- Y.log ~  -1  +
-  Intercept1 + f(spat1, copy='spat2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) +
-  Intercept2 + f(spat2, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) +  f(score_2, model=spde_score_2 ) +
-  Intercept3 + f(spat3, copy='spat2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) + f(score_3, model=spde_score_3 )
+#   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
+#   Intercept2 +  f(idarea2, model='bym2', graph=g) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+#   Intercept3 + f(idarea3,  copy='idarea2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
 
 
 t1 <- Sys.time()
@@ -539,20 +703,7 @@ t2 <- Sys.time()
 print(t2-t1)
 summary(res)
 
-save(res, file=file.path(dir.out, 'Model_weibull_0.0625.RData'))
-
-# B2_sf <- st_as_sf(B2.merge)
-# library(tidyr)
-# B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:108))
-# B2_sf$time.idx <- as.integer(substring(B2_sf$y.time.idx, 3, 5))
-# 
-# B2_sf <- merge(
-#   B2_sf[,c('grid.idx','time.idx')], data.fit2,
-# 
-#   by.x=c('grid.idx','time.idx'),
-#   by.y=c('grid.idx','time.idx'),
-# )
-# 
-# 
-# ggplot() +
-#   geom_sf(data=B2_sf[B2_sf$time.idx==9,],aes(fill =y),lwd = 0.1)
+# save(res, file=file.path(dir.out, 'Model_weibull_0.0625.RData'))
+# save(res, file=file.path(dir.out, 'Model_weibull_spde_0.125.RData'))
+# save(res, file=file.path(dir.out, 'Model_weibull_bym2_0.125.RData'))
+save(res, file=file.path(dir.out, 'Model_weibull_spde_0.25.RData'))
