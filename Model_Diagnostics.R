@@ -26,14 +26,17 @@ library(scoringRules)
 # load(file.path(dir.out, 'data.fit2.score_0.25.RData'))
 # load(file=file.path(dir.out,'Model_weibull_0.25_pred_sp_200.RData'))
  
-# load(file.path(dir.out, 'data.fit2.score_0.125.RData'))
+load(file.path(dir.out, 'data.fit2.score_0.125.RData'))
 # load(file=file.path(dir.out,'Model_weibull_0.125_pred_sp_200.RData'))
 
-load(file.path(dir.out, 'data.fit2.pred_0.0625.RData'))
+# load(file.path(dir.out, 'data.fit2.pred_0.0625.RData'))
 # load(file.path(dir.out, 'data.fit2.pred_0.125.RData'))
-load(file=file.path(dir.out,'Model_weibull_0.125_pred_0.0625_pred_sp_200.RData'))
+# load(file=file.path(dir.out,'Model_weibull_0.125_pred_0.0625_pred_sp_200.RData'))
 # load(file=file.path(dir.out,'Model_weibull_0.25_pred_0.0625_pred_sp_200.RData'))
-# load(file=file.path(dir.out,'Model_weibull_0.125_pred_0.125_pred_sp_200.RData'))
+load(file=file.path(dir.out,'Model_weibull_spde_0.125_pred_0.125_pred_sp_200.RData'))
+# load(file=file.path(dir.out,'Model_weibull_bym2_0.125_pred_0.125_pred_sp_200.RData'))
+# load(file=file.path(dir.out,'Model_egp_spde_0.125_pred_0.125_pred_sp_200.RData'))
+# load(file=file.path(dir.out,'Model_gamma_spde_0.125_pred_0.125_pred_sp_200.RData'))
 
 
 pred.cnt <- pred.sp$pred.cnt
@@ -41,21 +44,21 @@ pred.ba <- pred.sp$pred.ba
 pred.z <- pred.sp$pred.z
 
 
-
+# 
 # n.grid <- 2554
 # n.grid <- 192
-# n.grid <- 681
-# n1 <- n.grid*108
+n.grid <- 681
+n1 <- n.grid*108
 # n1 <- n.grid*12
 # pred.time <- c(97, 108)
 # subset.idx <- (1+(pred.time[1]-1)*n.grid) : (n.grid + (pred.time[2]-1)*n.grid )
 
-n1 <- nrow(data.fit2.pred)
+# n1 <- nrow(data.fit2.pred)
 
-# idx.pred.pois <- 1:n1
-# idx.pred.z <- (n1+1):(2*n1)
-# idx.pred.ba <- (2*n1+1):(3*n1)
-# 
+idx.pred.pois <- 1:n1
+idx.pred.z <- (n1+1):(2*n1)
+idx.pred.ba <- (2*n1+1):(3*n1)
+
 # idx.pred.cnt <- idx.pred.pois[subset.idx]
 # idx.pred.z <- idx.pred.z[subset.idx]
 # idx.pred.ba <- idx.pred.ba[subset.idx]
@@ -64,7 +67,7 @@ n1 <- nrow(data.fit2.pred)
 
 crps.ba <- rep(NA, n1)
 for (i in 1:n1 ){
-  y <- log(data.fit2.pred$area_ha[i])
+  y <- log(data.fit2$area_ha[i])
   if (is.na(y)) y <- 0
   crps.ba[i] <- crps_sample(
     y,
@@ -72,23 +75,24 @@ for (i in 1:n1 ){
     method = "edf")
 }
 round(sum(crps.ba)/length(crps.ba),4)
+# 
+# 
+# 
+# crps.cnt <- rep(NA, n1)
+# for (i in 1:n1 ){
+#   y <- data.fit2.pred$y[i]
+#   if (is.na(y)) y <- 0
+#   crps.cnt[i] <- crps_sample(
+#     y,
+#     pred.ba[[i]],
+#     method = "edf")
+# }
+# 
+# round(sum(crps.cnt)/length(crps.cnt),4)
 
 
-
-crps.cnt <- rep(NA, n1)
-for (i in 1:n1 ){
-  y <- data.fit2.pred$y[i]
-  if (is.na(y)) y <- 0
-  crps.cnt[i] <- crps_sample(
-    y,
-    pred.ba[[i]],
-    method = "edf")
-}
-
-round(sum(crps.cnt)/length(crps.cnt),4)
-
-
-data.fit2.2020 <- data.fit2.pred
+# data.fit2.2020 <- data.fit2.pred
+data.fit2.2020 <- data.fit2
 data.fit2.2020[is.na(data.fit2.2020$log_ba),'log_ba'] <- 0
 
 data.fit2.2020[,'Estimated_Lambda'] <- sapply(pred.cnt,mean)
@@ -164,9 +168,9 @@ ggplot() +geom_sf(data=merged_sf1, aes(fill=NAME_1,col=NAME_1)) +
   geom_sf(data = sf_districts,color = "black", fill = NA)
 
 
-dist.name <- 'Castelo Branco'
+# dist.name <- 'Castelo Branco'
 # dist.name <- 'Guarda'
-# dist.name <- 'Vila Real'
+dist.name <- 'Vila Real'
 joint.post.sp <- function(x) Reduce("+", x)
 df.dist <- data.frame(month=rep(97:108, each=length(pred.cnt[[1]])))
 df.dist$year_label <- 2020
@@ -212,7 +216,7 @@ ggplot(df.dist[df.dist$month>=85,], aes(x = factor(time_label), y = sample_ba)) 
 
 #----------------------------------boxplot by district----------------------
 
-time.idx <- 104
+time.idx <- 105
 
 merged_sf2 <- st_join(grid.cell.coord, sf_conc[,'NAME_2'], join = st_nearest_feature)
 
@@ -222,7 +226,7 @@ fire.dist.month <- st_drop_geometry(merged_sf1) %>% group_by(NAME_1, time.idx) %
             ba.true = sum(log_ba),
   )
 
-dist.vector <- fire.dist.month %>% group_by(NAME_1) %>% 
+dist.vector <- fire.dist.month[fire.dist.month$time.idx>=97,] %>% group_by(NAME_1) %>% 
   summarize(cnt.true = sum(cnt.true),
             ba.true = sum(ba.true),
   )%>% arrange(-ba.true)
