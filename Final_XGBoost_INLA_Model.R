@@ -375,16 +375,32 @@ data.fit.ba <- data.merge %>% st_drop_geometry() %>% filter( time.idx<=108, leng
 # data.fit2 <- data.fit2[order(data.fit2$time.idx),]
 
 
+# data.fit2$score_cnt_bin <- cut(data.fit2$score_cnt, 4,lables=1:4)
+
 
 # save(data.fit2, file=file.path(dir.out, 'data.fit2.score_0.0625.RData'))
 # load(file.path(dir.out, 'data.fit2.score_0.0625.RData'))
 
 
 # save(data.fit2, file=file.path(dir.out, 'data.fit2.score_0.125.RData'))
-# load(file.path(dir.out, 'data.fit2.score_0.125.RData'))
+load(file.path(dir.out, 'data.fit2.score_0.125.RData'))
 
-load(file.path(dir.out, 'data.fit2.score_0.25.RData'))
+# load(file.path(dir.out, 'data.fit2.score_0.25.RData'))
 
+
+
+table(cut(data.fit2[data.fit2$y>0,'score_ba'], breaks=8))
+data.fit2$score_ba_bin <- cut(data.fit2$score_ba, breaks=c(0,3.19,3.64,4.09,4.54,4.99,100),labels=1:6)
+table((data.fit2[data.fit2$y>0,'score_ba_bin']),useNA='always')
+
+
+table(cut(data.fit2[data.fit2$y>0,'score_cnt'], breaks=8))
+data.fit2$score_cnt_bin <- cut(data.fit2$score_cnt, breaks=c(0, 1.03,1.12,1.21,100),labels=1:4)
+table((data.fit2[data.fit2$y>0,'score_cnt_bin']),useNA='always')
+
+
+data.fit2$score_z_bin <- cut(data.fit2$score_z, breaks=c(seq(0,0.8,0.1),1),labels=1:9)
+table((data.fit2[,'score_z_bin']),useNA='always')
 ####################################################################
 # INLA
 ####################################################################
@@ -397,7 +413,7 @@ data.fit3 <- reshape(data.fit2[,c('grid.idx','time.idx','y')],
 
 B2.merge <- merge(B2, data.fit3, by = "grid.idx")
 
-# save(B2.merge, file=file.path(dir.out, 'grid_cell_map_0.125.RData'))
+save(B2.merge, file=file.path(dir.out, 'grid_cell_map_0.125.RData'))
 
 B2.adj <- poly2nb(B2)
 nb2INLA("map.adj", B2.adj)
@@ -446,28 +462,29 @@ spde.spat <- inla.spde2.pcmatern(mesh = mesh.spat,
                                  # PC-prior on sigma: P(sigma > 1) = 0.01
                                  prior.sigma = c(1, 0.01))
 
-indexs.1 <- inla.spde.make.index("spat1", spde.spat$n.spde)
-A.spat.1 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
 
-indexs.2 <- inla.spde.make.index("spat2", spde.spat$n.spde)
-A.spat.2 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
-
-indexs.3 <- inla.spde.make.index("spat3", spde.spat$n.spde)
-A.spat.3 <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
+A.spat <- inla.spde.make.A(mesh = mesh.spat, loc = coo)
 
 
-resolution <- "0.25"
+
+
+resolution <- "0.125"
+
+
 if (resolution=='0.125'){
-  mesh_score_1 <- inla.mesh.1d(c(0.93, 0.99, 1.03,  1.06, 1.5 , 1.8),boundary=c('free','free')) 
+  #SPDE model
+  # mesh_score_1 <- inla.mesh.1d(c(0.93, 0.99, 1.03,  1.06, 1.5 , 1.8),boundary=c('free','free'))
+  #BYM2 model
+  mesh_score_1 <- inla.mesh.1d(c(1,1.05, 1.1, 1.15,1.2, 1.25 ),boundary=c('free','free')) 
   A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit2$score_cnt)
   spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1, 
-                                       prior.range = c(0.3, 0.1),
+                                       prior.range = c(0.1, 0.05),
                                        prior.sigma = c(1, 0.05))
   # spde_score_1 <-  inla.spde2.matern(mesh_score_1, constr = TRUE)
   
   spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
   
-  mesh_score_2 <- inla.mesh.1d(c(0.02, 0.1,0.2,0.4,0.6,0.8,0.9),boundary=c('free','free'))
+  mesh_score_2 <- inla.mesh.1d(c(0.01, 0.07,0.2,0.3,0.5,0.8),boundary=c('free','free'))
   # mesh_score_2 <- inla.mesh.1d(seq(0, 1, by = 0.2),boundary=c('dirichlet','dirichlet'))
   A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit2$score_z)
   spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2, 
@@ -477,12 +494,12 @@ if (resolution=='0.125'){
   spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
   
   
-  mesh_score_3 <- inla.mesh.1d(c(2.5, 3.2, 3.7, 5.5),boundary=c('free','free'))
+  mesh_score_3 <- inla.mesh.1d(c(3.14, 3.6, 4, 4.4, 4.8),boundary=c('free','free'))
   # mesh_score_3 <- inla.mesh.1d(seq(0, 7, by = 1),boundary=c('dirichlet','free'))
   A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit2$score_ba)
   spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3, 
-                                       prior.range = c(1.5, 0.1),
-                                       prior.sigma = c(1, 0.05))
+                                       prior.range = c(0.5, 0.05),
+                                       prior.sigma = c(1, 0.1))
   # spde_score_3 <-  inla.spde2.matern(mesh_score_3, constr = TRUE)
   spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
 }
@@ -523,26 +540,28 @@ if (resolution =='0.25'){
 
 cnt.stack <- inla.stack(
   data= list(Y.log=cbind(cnt,NA,NA)),
-  A <- list(1,1,1,A1,A.spat.1),
-  effect = list(Intercept1=rep(1,nrow(data.fit2)), idarea1=data.fit2$grid.idx, time.idx1=data.fit2$month.idx, score_1=spde_score_1.idx,
-                spat1=indexs.1),
+  A <- list(1,1,1,1,A1, A.spat, A.spat,1),
+  effect = list(Intercept1=rep(1,nrow(data.fit2)), idarea1=data.fit2$grid.idx, 
+                idarea.cnt=data.fit2$grid.idx, time.idx1=data.fit2$month.idx, score_1=spde_score_1.idx,
+                spat.share.cnt=1:spde.spat$n.spde, spat.cnt=1:spde.spat$n.spde, score_cnt_bin=data.fit2$score_cnt_bin  ),
   tag='cnt'
 )
 
 z.stack <- inla.stack(
   data= list(Y.log=cbind(NA,z,NA)),
-  A <- list(1,1,1,A2,A.spat.2),
+  A <- list(1,1,1,A2, A.spat,1),
   effect = list(Intercept2=rep(1,nrow(data.fit2)), idarea2=data.fit2$grid.idx, time.idx2=data.fit2$month.idx, score_2=spde_score_2.idx,
-                 spat2=indexs.2),
+                spat.z=1:spde.spat$n.spde, score_z_bin = data.fit2$score_z_bin  ),
   tag='z'
 )
 
 
 ba.stack <- inla.stack(
   data= list(Y.log=cbind(NA,NA,log.ba)),
-  A <- list(1,1,1, A3,A.spat.3),
-  effect = list(Intercept3=rep(1,nrow(data.fit2)), idarea3=data.fit2$grid.idx, time.idx3=data.fit2$month.idx, score_3=spde_score_3.idx,
-                spat3=indexs.3),
+  A <- list(1,1,1,1, A3, A.spat, A.spat,1),
+  effect = list(Intercept3=rep(1,nrow(data.fit2)), idarea3=data.fit2$grid.idx,
+                idarea.ba=data.fit2$grid.idx, time.idx3=data.fit2$month.idx, score_3=spde_score_3.idx,
+                spat.share.ba=1:spde.spat$n.spde, spat.ba = 1:spde.spat$n.spde, score_ba_bin=data.fit2$score_ba_bin),
   tag='ba'
 )
 
@@ -552,9 +571,6 @@ all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
 
 
 ########-----------------------Prepare prediction data------------------------
-# grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
-#                                 cellsize = c(0.0625,0.0625),
-#                                 cells.dim = c(68, 116)))
 grd <- SpatialGrid(GridTopology(cellcentre.offset = c(-10, 36),
                                 cellsize = c(0.125,0.125),
                                 cells.dim = c(34, 58)))
@@ -622,9 +638,12 @@ data.fit2.sf <- st_as_sf(data.fit2, coords=c('grid.cent.x.utm','grid.cent.y.utm'
 
 for (time.idx in 97:108){
   data.fit2.pred[data.fit2.pred$time.idx==time.idx,
-                 c('score_z','score_ba','score_cnt')] <- st_join(data.fit2.pred.sf[data.fit2.pred.sf$time.idx==time.idx,], 
-                                                                 data.fit2.sf[data.fit2.sf$time.idx==time.idx,c('score_z','score_ba','score_cnt')], 
-                                                                 join = st_nearest_feature) |> st_drop_geometry()|> dplyr::select(score_z,score_ba,score_cnt)
+                 c('score_z','score_ba','score_cnt',
+                   'score_z_bin','score_ba_bin','score_cnt_bin')] <- st_join(data.fit2.pred.sf[data.fit2.pred.sf$time.idx==time.idx,], 
+                                                                 data.fit2.sf[data.fit2.sf$time.idx==time.idx,c('score_z','score_ba','score_cnt',
+                                                                                                                'score_z_bin','score_ba_bin','score_cnt_bin')], 
+                                                                 join = st_nearest_feature) |> st_drop_geometry()|> dplyr::select(score_z,score_ba,score_cnt,
+                                                                                                                                  score_z_bin,score_ba_bin,score_cnt_bin)
 }
 
 data.fit2.pred <- data.fit2.pred[order(data.fit2.pred$time.idx),]
@@ -676,34 +695,121 @@ n1 <- dim(data.fit2)[1]
 
 
 hyper.rw <-  list(prec = list(prior="loggamma",param=c(1,1)))
+hyper.time.rw <- list(prec = list(prior="loggamma",param=c(80,20)))
 
+
+hyper.bym2 = list (
+  phi = list(
+  prior = "pc",
+  param = c(0.5 , 2/3) ,
+  initial = 3) ,
+  # prec = list(
+  #   prior = "pc. prec",
+  #   param = c (3 , 0.1) ,
+  #   initial = 5)
+  prec = list(prior="loggamma",param=c(1,0.5))
+  )
 # 
+# formula <- Y.log ~  -1  +
+#   Intercept1 + f(spat.cnt, copy='spat.z',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
+#   Intercept2 + f(spat.z, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+#   Intercept3 + f(spat.ba, copy='spat.z',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
+
 formula <- Y.log ~  -1  +
-  Intercept1 + f(spat1, copy='spat2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
-  Intercept2 + f(spat2, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
-  Intercept3 + f(spat3, copy='spat2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
+  Intercept1 + f(spat.cnt, copy='spat.z',fixed=F)  + f(score_1, model=spde_score_1 )+
+  Intercept2 + f(spat.z, model=spde.spat)  + f(score_2, model=spde_score_2 )+
+  Intercept3 + f(spat.ba, copy='spat.z',fixed=F)  +f(score_3, model=spde_score_3 )
+
+
+# formula <- Y.log ~  -1  +
+#   Intercept1 + f(spat.cnt, copy='spat.z',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.time.rw) + f(score_cnt_bin, model='rw1',hyper=hyper.rw )+
+#   Intercept2 + f(spat.z, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.time.rw) + f(score_z_bin, model='rw1',hyper=hyper.rw )+
+#   Intercept3 + f(spat.ba, copy='spat.z',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.time.rw) + f(score_ba_bin, model='rw1',hyper=hyper.rw )
+
+# formula <- Y.log ~  -1  +
+#   Intercept1 + f(spat.cnt, copy='spat.z',fixed=F) +   f(score_cnt_bin, model='rw1',hyper=hyper.rw )+
+#   Intercept2 + f(spat.z, model=spde.spat) + f(score_z_bin, model='rw1',hyper=hyper.rw )+
+#   Intercept3 + f(spat.ba, copy='spat.z',fixed=F) + f(score_ba_bin, model='rw1',hyper=hyper.rw )
+
 
 # formula <- Y.log ~  -1  +
 #   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
 #   Intercept2 +  f(idarea2, model='bym2', graph=g) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
 #   Intercept3 + f(idarea3,  copy='idarea2',fixed=F) +  f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
 
+# formula <- Y.log ~  -1  +
+#   Intercept1 + f(spat.share.cnt, copy='spat.z',fixed=F) + f(spat.cnt, model=spde.spat) +
+#   f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
+# 
+#   Intercept2 + f(spat.z, model=spde.spat) +  f(time.idx2, model='rw1',hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+# 
+#   Intercept3 + f(spat.share.ba, copy='spat.z',fixed=F) +  f(spat.ba, model=spde.spat)  +
+#     f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
+
+# formula <- Y.log ~  -1  +
+#   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_1, model=spde_score_1 )+
+#   Intercept2 +  f(idarea2, model='bym2', graph=g) +  f(time.idx2, model='rw1', hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+#   Intercept3 + f(idarea3,  copy='idarea2',fixed=F) + f(idarea.ba, model='bym2', graph=g, hyper=hyper.bym2)+ f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_3, model=spde_score_3 )
+
+# formula <- Y.log ~  -1  +
+#   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) +  f(time.idx1, model='rw1',hyper=hyper.rw) +
+#   Intercept2 +  f(idarea2, model='bym2', graph=g) +  f(time.idx2, model='rw1', hyper=hyper.rw) + f(score_2, model=spde_score_2 )+
+#   Intercept3 + f(idarea3,  copy='idarea2',fixed=F) + f(idarea.ba, model='bym2', graph=g, hyper=hyper.bym2)+ f(time.idx3, model='rw1',hyper=hyper.rw)
+
+# formula <- Y.log ~  -1  +
+#   Intercept1 +  f(idarea1, copy='idarea2',fixed=F) + f(time.idx1, model='rw1',hyper=hyper.rw) + f(score_cnt_bin, model='rw1',hyper=hyper.rw )+
+#   Intercept2 +  f(idarea2, model='bym2', graph=g) +  f(time.idx2, model='rw1', hyper=hyper.rw) + f(score_z_bin, model='rw1' )+
+#   Intercept3 + f(idarea3,  copy='idarea2',fixed=F) + f(time.idx3, model='rw1',hyper=hyper.rw) +f(score_ba_bin, model='rw1' ,hyper=hyper.rw)
+
 
 t1 <- Sys.time()
 res <- inla(formula,
-               family = c('poisson','binomial', 'weibull'), data = inla.stack.data(all.stack),  Ntrials=1,
+               family = c('poisson','binomial', 'gamma'), data = inla.stack.data(all.stack),  Ntrials=1,
                control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
                verbose=TRUE,
                control.compute=list(config = TRUE),
                control.family = list( list(), list(), list()),
-               control.fixed = list(expand.factor.strategy = 'inla'),
-               control.inla = list(debug = TRUE)
+               control.fixed = list(expand.factor.strategy = 'inla')
 )
+# res <- inla(formula,
+#                family = c('poisson','binomial', 'weibull'), data = inla.stack.data(all.stack),  Ntrials=1,
+#                control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+#                verbose=TRUE,
+#                control.compute=list(config = TRUE),
+#                control.family = list( list(), list(), list()),
+#                control.fixed = list(expand.factor.strategy = 'inla')
+# )
+# res <- inla(formula,
+#             family = c('poisson','binomial', 'egp'), data = inla.stack.data(all.stack),  Ntrials=1,
+#             control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+#             verbose=TRUE,
+#             control.compute=list(config = TRUE),
+#             control.family = list( list(), list(), list(control.link = list(quantile = 0.5),
+#                                                         hyper = list(
+#                                                           tail = list(
+#                                                           ##initial = xi.intern,
+#                                                           fixed = !TRUE,
+#                                                           prior = "pc.egptail",
+#                                                           param = c(5, -1, 1)),
+#                                                           shape = list(
+#                                                             ##initial = kappa.intern,
+#                                                             fixed = !TRUE,
+#                                                             prior = "loggamma",
+#                                                             param = c(100, 100)
+#                                                             )
+#                                                           )
+#                                                         )),
+#             control.fixed = list(expand.factor.strategy = 'inla')
+# )
 t2 <- Sys.time()
 print(t2-t1)
 summary(res)
 
 # save(res, file=file.path(dir.out, 'Model_weibull_0.0625.RData'))
-# save(res, file=file.path(dir.out, 'Model_weibull_spde_0.125.RData'))
+# save(res, file=file.path(dir.out, 'Model_egp_spde_0.125.RData'))
 # save(res, file=file.path(dir.out, 'Model_weibull_bym2_0.125.RData'))
-save(res, file=file.path(dir.out, 'Model_weibull_spde_0.25.RData'))
+# save(res, file=file.path(dir.out, 'Model_weibull_spde_0.125.RData'))
+save(res, file=file.path(dir.out, 'Model_gamma_spde_0.125.RData'))
+
+
+
