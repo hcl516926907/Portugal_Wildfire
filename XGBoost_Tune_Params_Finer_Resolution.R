@@ -40,11 +40,22 @@ data.rf[is.na(data.rf$log_ba),'log_ba'] <- 0
 library(xgboost)
 library(pROC)
 
-
+mean(data.rf[data.rf$y>0,'log_ba'])
+loss_eval <- function(pred,y,log_ba){
+  pos.idx <- which(y>0)
+  l1 <- sum((pred[pos.idx]*log_ba[pos.idx] - log_ba[pos.idx])^2)
+  l2 <- sum((pred[-pos.idx]*2.91345)^2)
+  return((l1+l2)/length(pred))
+}
 
 kfold_cv  <- function(data, target.name ,covar.names, params, k) {
   auc_train_list <- numeric(k)
   auc_test_list <- numeric(k)
+  
+  loss_train_list <- numeric(k)
+  loss_test_list <- numeric(k)
+  
+
   
   for (i in 1:k) {
     select.year <- 2011:2013 + 3*(i-1)
@@ -67,12 +78,19 @@ kfold_cv  <- function(data, target.name ,covar.names, params, k) {
     
     auc_train_list[i] <- auc_train
     auc_test_list[i] <- auc_test
+    
+    loss_train_list[i] <- loss_eval(train_pred,train_target,data[-index, 'log_ba'])
+    loss_test_list[i] <-  loss_eval(test_pred,test_target,data[index, 'log_ba'])
   }
   
   mean_auc_train <- mean(auc_train_list)
   mean_auc_test <- mean(auc_test_list)
   
-  return(list(mean_auc_test = mean_auc_test, mean_auc_train = mean_auc_train))
+  mean_loss_train <- mean(loss_train_list)
+  mean_loss_test <- mean(loss_test_list)
+  
+  return(list(mean_auc_test = mean_auc_test, mean_auc_train = mean_auc_train,
+              mean_loss_train = mean_loss_train, mean_loss_test=mean_loss_test))
 }
 
 
@@ -121,7 +139,9 @@ xgboost_tune_z <- function(tune_grid){
       nrounds = tune_grid$nrounds[i],
       scale_pos_weight = tune_grid$scale_pos_weight[i],
       mean_auc_train = result$mean_auc_train,
-      mean_auc_test = result$mean_auc_test
+      mean_auc_test = result$mean_auc_test,
+      mean_loss_train = result$mean_loss_train,
+      mean_loss_test = result$mean_loss_test
     ))
   }
   
@@ -141,10 +161,21 @@ tune_grid <- expand.grid(
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = seq(0.05,0.09,0.01),
-  max_depth =c(4,5,6),
+  eta = c(0.06,0.07,0.08),
+  max_depth =c(7,8,9),
   gamma = 0,
-  scale_pos_weight = c(16,17,18,19),
+  scale_pos_weight = 1:3,
+  colsample_bytree = 0.8,
+  min_child_weight = 1,
+  subsample = 0.7
+)
+
+tune_grid <- expand.grid(
+  nrounds = 100,
+  eta = seq(0.01,0.08,0.01),
+  max_depth =8,
+  gamma = 0,
+  scale_pos_weight = 2,
   colsample_bytree = 0.8,
   min_child_weight = 1,
   subsample = 0.7
@@ -153,74 +184,77 @@ tune_grid <- expand.grid(
 
 results_df1 <- xgboost_tune_z(tune_grid)
 print(results_df1[order(results_df1$mean_auc_test,decreasing=T),])
-
+print(results_df1[order(results_df1$mean_loss_test,decreasing=F),])
 #
+
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 5,
+  eta = 0.06,
+  max_depth = 8,
   gamma = 0,
-  scale_pos_weight = 18,
+  scale_pos_weight = 2,
   colsample_bytree = 0.8,
-  min_child_weight = 13:20,
+  min_child_weight = 1:10,
   subsample = 0.7
 )
 
 results_df2 <- xgboost_tune_z(tune_grid)
 
 print(results_df2[order(results_df2$mean_auc_test,decreasing=T),])
+print(results_df2[order(results_df2$mean_loss_test,decreasing=F),])
 #
 # save(results_df3, file=file.path(dir.out, 'XGBoost_Param_z_3.RData'))
 
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 5,
+  eta = 0.06,
+  max_depth = 8,
   gamma = 0,
-  scale_pos_weight = 18,
+  scale_pos_weight = 2,
   colsample_bytree = c(0.4,0.5,0.6,0.7,0.8,0.9,1),
-  min_child_weight = 17,
+  min_child_weight = 9,
   subsample = c(0.4,0.5,0.6,0.7,0.8,0.9,1)
 )
 
 results_df3 <- xgboost_tune_z(tune_grid)
 
 print(results_df3[order(results_df3$mean_auc_test,decreasing=T),])
-#
+print(results_df3[order(results_df3$mean_loss_test,decreasing=F),])
 # save(results_df4, file=file.path(dir.out, 'XGBoost_Param_z_4.RData'))
 
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 5,
+  eta = 0.06,
+  max_depth = 8,
   gamma = seq(0,1,0.1),
-  scale_pos_weight = 18,
-  colsample_bytree = 0.6,
-  min_child_weight = 17,
-  subsample = 0.8
+  scale_pos_weight = 2,
+  colsample_bytree = 0.9,
+  min_child_weight = 9,
+  subsample = 0.7
 )
 
 results_df4 <- xgboost_tune_z(tune_grid)
 
 print(results_df4[order(results_df4$mean_auc_test,decreasing=T),])
-#
+print(results_df4[order(results_df4$mean_loss_test,decreasing=F),])
 # save(results_df5, file=file.path(dir.out, 'XGBoost_Param_z_5.RData'))
 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
-  eta = 0.07,
-  max_depth = 5,
-  gamma = 1,
-  scale_pos_weight = 18,
-  colsample_bytree = 0.6,
-  min_child_weight = 17,
-  subsample = 0.8
+  eta = 0.06,
+  max_depth = 8,
+  gamma = 0,
+  scale_pos_weight = 2,
+  colsample_bytree = 0.9,
+  min_child_weight = 9,
+  subsample = 0.7
 )
 #
 results_df5 <- xgboost_tune_z(tune_grid)
 print(results_df5[order(results_df5$mean_auc_test,decreasing=T),])
+print(results_df5[order(results_df5$mean_loss_test,decreasing=F),])
 # save(results_df6, file=file.path(dir.out, 'XGBoost_Param_z_6.RData'))
 
 
@@ -230,14 +264,14 @@ plot(results_df5$nrounds,results_df5$mean_auc_train,type='l',col='blue',ylim=c(0
 lines(results_df5$nrounds,results_df5$mean_auc_test,col='red',type='l')
 
 tune_grid_z <- expand.grid(
-  nrounds = 100,
-  eta = 0.07,
-  max_depth = 5,
-  gamma = 1,
-  scale_pos_weight = 18,
-  colsample_bytree = 0.6,
-  min_child_weight = 17,
-  subsample = 0.8
+  nrounds = 95,
+  eta = 0.06,
+  max_depth = 8,
+  gamma = 0,
+  scale_pos_weight = 2,
+  colsample_bytree = 0.9,
+  min_child_weight = 9,
+  subsample = 0.7
 )
 
 
@@ -338,17 +372,44 @@ xgboost_tune_ba <- function(tune_grid){
   return(results_df)
 }
 
+custom_loss <- function(preds, dtrain, alpha) {
+  # Get the true labels
+  labels <- getinfo(dtrain, "label")
+  
+  # Calculate the gradient
+  grad <- 2 * alpha * (preds - labels)
+  
+  # Calculate the hessian
+  hess <- rep(2 * alpha, length(labels))
+  
+  # Return as a list
+  return(list(grad = grad, hess = hess))
+}
 
+
+train_with_custom_loss <- function(alpha, dtrain, params) {
+  # Define the custom objective function with alpha
+  custom_objective <- function(preds, dtrain) {
+    custom_loss(preds, dtrain, alpha)
+  }
+  # Train the XGBoost model
+  model <- xgboost(
+    data = dtrain,
+    params = params,
+    verbose = 0  # Turn off printing for cleaner output
+  )
+  return(model)
+}
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = seq(0.02,0.09,0.01),
-  max_depth = c(2,3,4,5),
+  eta = seq(0.02,0.1,0.01),
+  max_depth = c(2,3,4),
   gamma = 0,
   colsample_bytree = 0.8,
   min_child_weight = 1,
   subsample = 0.7,
-  objective=c('reg:squarederror')
+  objective=c('reg:squarederror','reg:gamma')
 )
 
 
