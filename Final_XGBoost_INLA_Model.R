@@ -77,19 +77,33 @@ kfold_cv_pred  <- function(data, target.name ,covar.names, params, k) {
   return(data$score)
 }
 
+# params_z <- list(
+#   nrounds = 100,
+#   eta = 0.07,
+#   max_depth = 5,
+#   gamma = 1,
+#   scale_pos_weight = 18,
+#   colsample_bytree = 0.6,
+#   min_child_weight = 17,
+#   subsample = 0.8,
+#   objective = "binary:logistic",
+#   eval_metric = "auc",
+#   verbosity = 0
+# )
 params_z <- list(
-  nrounds = 100,
-  eta = 0.07,
-  max_depth = 5,
-  gamma = 1,
-  scale_pos_weight = 18,
-  colsample_bytree = 0.6,
-  min_child_weight = 17,
-  subsample = 0.8,
+  nrounds = 95,
+  eta = 0.06,
+  max_depth = 8,
+  gamma = 0,
+  scale_pos_weight = 2,
+  colsample_bytree = 0.9,
+  min_child_weight = 9,
+  subsample = 0.7,
   objective = "binary:logistic",
   eval_metric = "auc",
   verbosity = 0
 )
+
 #
 data.rf$score_z <- kfold_cv_pred(data.rf, 'z', covar.names ,params_z, 4)
 
@@ -204,6 +218,8 @@ poisson_loss <- function(y,lambda){
 
 data.fit[data.fit$y>0,]%>%group_by(year)%>% summarize(avg_loss=poisson_loss(y,score_cnt))
  
+save(data.fit, file=file.path(dir.out,'Data_wi_xgb_score.RData'))
+
 save(model.z,model.ba,model.cnt,file=file.path(dir.out,'XGBoost_Models.RData'))
 ####################################################################
 # INLA
