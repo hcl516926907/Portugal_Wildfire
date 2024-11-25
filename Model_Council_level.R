@@ -9,17 +9,17 @@ inla.setOption(scale.model.default = TRUE)
 library(mgcv)
 library(ggplot2)
 library(rgdal)
-library(sf)
 library(fmesher)
 library(dplyr)
 library(RColorBrewer)
 library(terra)
-library(rgeos)
+# library(rgeos)
 library(spdep)
 library(raster)
-library(scoringRules)
+# library(scoringRules)
 library(fastDummies)
 # bru_safe_sp(force = TRUE)
+library(sf)
 
 load(file.path(dir.data, "Data_For_Fitting_Council.RData"))
 data.fit <- data.fit.council
@@ -28,6 +28,8 @@ data.fit <- data.fit.council
 ####################################################################
 # INLA
 ####################################################################
+district.factor <- data.fit$NAME_1
+data.fit$NAME_1 <- droplevels(district.factor[district.factor != "Açores" & district.factor != "Madeira"])
 
 data.fit$z <- as.vector((data.fit$y>0)+0)
 data.fit$HVegTyp <- as.factor(data.fit$HVegTyp)
@@ -36,15 +38,24 @@ data.fit$LVegTyp <- as.factor(data.fit$LVegTyp)
 # levels(data.fit$LVegTyp) <- c('NoCover','Crops','Tall_grass','Semidesert','Evergreen_shrubs')
 data.fit$month <- as.factor(data.fit$month)
 data.fit <- dummy_cols(data.fit, 
-                       select_columns = c('HVegTyp','LVegTyp','month'),remove_first_dummy=TRUE)
+                       select_columns = c('HVegTyp','LVegTyp','month','NAME_1'),remove_first_dummy=TRUE)
 
 covar.names <- c('lon.grid','lat.grid','year',
                  'FWI','HVegCov','HVegLAI','LVegCov','LVegLAI',
                  'Pricp','RHumi','Temp','UComp','VComp','DewPoint','WindSpeed',
                  'HVegTyp_6','HVegTyp_18','HVegTyp_19',
                  'LVegTyp_1','LVegTyp_7','LVegTyp_11','LVegTyp_16',
-                 'month_2','month_3','month_4','month_5','month_6','month_7','month_8','month_9','month_10','month_11','month_12'
+                 'month_2','month_3','month_4','month_5','month_6','month_7',
+                 'month_8','month_9','month_10','month_11','month_12',
+                 "NAME_1_Beja",
+                 "NAME_1_Braga", "NAME_1_Bragança", "NAME_1_Castelo Branco",
+                 "NAME_1_Coimbra", "NAME_1_Évora", "NAME_1_Faro",
+                 "NAME_1_Guarda", "NAME_1_Leiria", "NAME_1_Lisboa",
+                 "NAME_1_Portalegre","NAME_1_Porto",
+                 "NAME_1_Santarém", "NAME_1_Setúbal", "NAME_1_Viana do Castelo",
+                 "NAME_1_Vila Real", "NAME_1_Viseu"
 )
+
 
 data.rf <- data.fit[data.fit$year <= 2022, c(covar.names,'grid.idx','time.idx','area_ha','z','y')]
 
@@ -214,6 +225,23 @@ data.fit[data.fit$y>0,]%>%group_by(year)%>% summarize(avg_loss=poisson_loss(y,sc
 
 
 
+dist<-shapefile(file.path(dir.data,'shapefile', "distritos.shp"))
+dist$ID_0 <- as.factor(iconv(as.character(dist$ID_0), "UTF-8"))
+dist$ISO <- as.factor(iconv(as.character(dist$ISO), "UTF-8"))
+dist$NAME_0 <- as.factor(iconv(as.character(dist$NAME_0), "UTF-8"))
+dist$ID_1 <- as.factor(iconv(as.character(dist$ID_1), "UTF-8"))
+dist$NAME_1 <- as.factor(iconv(as.character(dist$NAME_1), "UTF-8"))
+dist$HASC_1 <- as.factor(iconv(as.character(dist$HASC_1),  "UTF-8"))
+dist$CCN_1<- as.factor(iconv(as.character(dist$CCN_1),  "UTF-8"))
+dist$CCA_1 <- as.factor(iconv(as.character(dist$CCA_1), "UTF-8"))
+dist$TYPE_1 <- as.factor(iconv(as.character(dist$TYPE_1), "UTF-8"))
+dist$ENGTYPE_1 <- as.factor(iconv(as.character(dist$ENGTYPE_1), "UTF-8"))
+dist$NL_NAME_1 <- as.factor(iconv(as.character(dist$NL_NAME_1), "UTF-8"))
+dist$VARNAME_1 <- as.factor(iconv(as.character(dist$VARNAME_1), "UTF-8"))
+dist=dist[dist$NAME_1!="Açores",]
+dist=dist[dist$NAME_1!="Madeira",]
+sf_districts <- st_as_sf(dist)
+
 # map <- conc[,'NAME_2']
 conc<-shapefile(file.path(dir.data, "shapefile","concelhos.shp"))
 conc$ID_0 <- as.factor(iconv(as.character(conc$ID_0),  "UTF-8"))
@@ -250,7 +278,25 @@ ggplot(map) + geom_sf()+
 
 
 nb2INLA("map.adj", nb)
-g <- inla.read.graph(filename = "map.adj")
+g.council <- inla.read.graph(filename = "map.adj")
+
+# 
+# 
+map.district <- sf_districts[,'NAME_1']
+rownames(map.district) <- sf_districts$NAME_1
+
+nb.district <- poly2nb(map.district)
+map.district$grid.idx.district <-  1:nrow(map.district)
+centroids.district <- st_centroid(map.district)
+centroid_coords.district <- st_coordinates(centroids.district)
+map.district$lon.grid <- centroid_coords.district[,1]
+map.district$lat.grid <- centroid_coords.district[,2]
+
+ggplot(map.district) + geom_sf()+
+  geom_text(aes(lon.grid, lat.grid, label = grid.idx.district), size=2,color='red')
+
+nb2INLA("map.district.adj", nb.district)
+g.district <- inla.read.graph(filename = "map.district.adj")
 
 
 
@@ -270,199 +316,298 @@ data.fit$year <- (data.fit$time.idx-1)%/%12 + 2011
 
 
 ###################merge district predictions###################
+# load(file=file.path(dir.out, 'districts_prediction.RData'))
+# 
+# data.fit <- merge(data.fit, data.fit.dist.pred, by=c('NAME_1','time.idx'))
+# 
+# 
+# 
+data.fit <- merge(data.fit,st_drop_geometry(map.district[,c('NAME_1','grid.idx.district')]),by='NAME_1')
 
-load(file=file.path(dir.out, 'districts_prediction.RData'))
-
-
-
-data.fit <- merge(data.fit, data.fit.dist.pred, by=c('NAME_1','time.idx'))
 
 data.fit <- data.fit[order(data.fit$time.idx,data.fit$grid.idx),]
-
+ 
 z <- as.vector((data.fit$y>0)+0)
 log.ba <- as.vector(ifelse(data.fit$y>0, data.fit$log_ba, NA))
-# cnt = as.vector(data.fit$y)
 cnt <- as.vector(ifelse(data.fit$y>0, data.fit$y, NA))
-#
+
 
 #prepare for prediction
 z[which(data.fit$year>2022)] <- NA
 log.ba[which(data.fit$year>2022)] <- NA
 cnt[which(data.fit$year>2022)] <- NA
 
-
-knots_cnt <- quantile(data.fit[data.fit$y>0,'score_cnt'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
-mesh_score_1 <- inla.mesh.1d(knots_cnt, boundary=c('free','free'))
-A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit$score_cnt)
-spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1,
-                                     prior.range = c(1, 0.1),
-                                     prior.sigma = c(1, 0.05))
-
-
-spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
-
-knots_z <- quantile(data.fit[,'score_z'],c(0.05,seq(0.1,0.9,0.1),0.95))
-mesh_score_2 <- inla.mesh.1d(knots_z,boundary=c('free','free'))
-
-A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit$score_z)
-spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2,
-                                     prior.range = c(0.1, 0.05),
-                                     prior.sigma = c(1, 0.05))
-spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
-
-knots_ba <- quantile(data.fit[data.fit$y>0,'score_ba'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
-mesh_score_3 <- inla.mesh.1d(knots_ba, boundary=c('free','free'))
-
-A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit$score_ba)
-spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3,
-                                     prior.range = c(10, 0.2),
-                                     prior.sigma = c(1, 0.1))
-spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
+# # 
+# knots_cnt <- quantile(data.fit[data.fit$y>0,'score_cnt'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
+# mesh_score_1 <- inla.mesh.1d(knots_cnt, boundary=c('free','free'))
+# A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit$score_cnt)
+# spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1,
+#                                      prior.range = c(1, 0.1),
+#                                      prior.sigma = c(1, 0.05))
+# 
+# 
+# spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
+# 
+# knots_z <- quantile(data.fit[,'score_z'],c(0.05,seq(0.1,0.9,0.1),0.95))
+# mesh_score_2 <- inla.mesh.1d(knots_z,boundary=c('free','free'))
+# 
+# A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit$score_z)
+# spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2,
+#                                      prior.range = c(0.1, 0.05),
+#                                      prior.sigma = c(1, 0.05))
+# spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
+# 
+# knots_ba <- quantile(data.fit[data.fit$y>0,'score_ba'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
+# mesh_score_3 <- inla.mesh.1d(knots_ba, boundary=c('free','free'))
+# 
+# A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit$score_ba)
+# spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3,
+#                                      prior.range = c(10, 0.2),
+#                                      prior.sigma = c(1, 0.1))
+# spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
 
 
 
 
 #####district score#########
-knots_cnt.dist <- quantile(data.fit[data.fit$y>0,'score_cnt.dist'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
-mesh_score_1.dist <- inla.mesh.1d(knots_cnt.dist, boundary=c('free','free'))
-A1.dist <- inla.spde.make.A(mesh_score_1.dist, loc=data.fit$score_cnt.dist)
-spde_score_1.dist <-  inla.spde2.pcmatern(mesh_score_1.dist,
-                                     prior.range = c(1, 0.1),
-                                     prior.sigma = c(1, 0.05))
-spde_score_1.dist.idx <- inla.spde.make.index("score_1.dist", n.spde = spde_score_1.dist$n.spde)
-
-
-knots_z.dist <- quantile(data.fit[,'score_z.dist'],c(0.05,seq(0.1,0.9,0.1),0.95))
-mesh_score_2.dist <- inla.mesh.1d(knots_z.dist,boundary=c('free','free'))
-A2.dist <- inla.spde.make.A(mesh_score_2.dist, loc=data.fit$score_z.dist)
-spde_score_2.dist <-  inla.spde2.pcmatern(mesh_score_2.dist,
-                                     prior.range = c(0.1, 0.05),
-                                     prior.sigma = c(1, 0.05))
-spde_score_2.dist.idx <- inla.spde.make.index("score_2.dist", n.spde = spde_score_2.dist$n.spde)
-
-
-knots_ba.dist <- quantile(data.fit[data.fit$y>0,'score_ba.dist'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
-mesh_score_3.dist <- inla.mesh.1d(knots_ba.dist, boundary=c('free','free'))
-A3.dist <- inla.spde.make.A(mesh_score_3.dist, loc=data.fit$score_ba.dist)
-spde_score_3.dist <-  inla.spde2.pcmatern(mesh_score_3.dist,
-                                     prior.range = c(10, 0.2),
-                                     prior.sigma = c(1, 0.1))
-spde_score_3.dist.idx <- inla.spde.make.index("score_3.dist", n.spde = spde_score_3.dist$n.spde)
-
-
-
-
-cnt.stack <- inla.stack(
-  data= list(Y.log=cbind(cnt,NA,NA)),
-  A <- list(1,1,A1, 1 , 1,1,1,1,1,1,1,1,1,1,1,1,A1.dist ),
-  effect = list(Intercept1=rep(1,nrow(data.fit)), month.idx.cnt=data.fit$month, score_1=spde_score_1.idx,
-                grid.idx.cnt=data.fit$grid.idx, 
-                year.af.2017.cnt = as.integer(data.fit$year>2017),
-                month_2.cnt = data.fit$month_2, month_3.cnt = data.fit$month_3,
-                month_4.cnt = data.fit$month_4, month_5.cnt = data.fit$month_5,
-                month_6.cnt = data.fit$month_6, month_7.cnt = data.fit$month_7,
-                month_8.cnt = data.fit$month_8, month_9.cnt = data.fit$month_9,
-                month_10.cnt = data.fit$month_10, month_11.cnt = data.fit$month_11,
-                month_12.cnt = data.fit$month_12,
-                score_1.dist = spde_score_1.dist.idx ),
-  tag='cnt'
-)
-
-z.stack <- inla.stack(
-  data= list(Y.log=cbind(NA,z,NA)),
-  A <- list(1,1,A2, 1 , 1,1,1,1,1,1,1,1,1,1,1,1, A2.dist),
-  effect = list(Intercept2=rep(1,nrow(data.fit)), month.idx.z=data.fit$month, score_2=spde_score_2.idx,
-                grid.idx.z=data.fit$grid.idx, 
-                year.af.2017.z = as.integer(data.fit$year>2017),
-                month_2.z = data.fit$month_2, month_3.z = data.fit$month_3,
-                month_4.z = data.fit$month_4, month_5.z = data.fit$month_5,
-                month_6.z = data.fit$month_6, month_7.z = data.fit$month_7,
-                month_8.z = data.fit$month_8, month_9.z = data.fit$month_9,
-                month_10.z = data.fit$month_10, month_11.z = data.fit$month_11,
-                month_12.z = data.fit$month_12,
-                score_2.dist=spde_score_2.dist.idx),
-  tag='z'
-)
-
-
-ba.stack <- inla.stack(
-  data= list(Y.log=cbind(NA,NA,log.ba)),
-  A <- list(1,1, A3, 1 , 1,1,1,1,1,1,1,1,1,1,1,1,A3.dist),
-  effect = list(Intercept3=rep(1,nrow(data.fit)), month.idx.ba=data.fit$month, score_3=spde_score_3.idx,
-                grid.idx.ba = data.fit$grid.idx,
-                year.af.2017.ba = as.integer(data.fit$year>2017),
-                month_2.ba = data.fit$month_2, month_3.ba = data.fit$month_3,
-                month_4.ba = data.fit$month_4, month_5.ba = data.fit$month_5,
-                month_6.ba = data.fit$month_6, month_7.ba = data.fit$month_7,
-                month_8.ba = data.fit$month_8, month_9.ba = data.fit$month_9,
-                month_10.ba = data.fit$month_10, month_11.ba = data.fit$month_11,
-                month_12.ba = data.fit$month_12,
-                score_3.dist=spde_score_3.dist.idx),
-  tag='ba'
-)
-
-
-all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
-
-
-# formula <- Y.log ~  -1  +
-#   Intercept1 + f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  + f(score_1, model=spde_score_1 )+ 
-#   Intercept2 + f(grid.idx.z, model='bym2',graph=g)  + f(score_2, model=spde_score_2 )+
-#   Intercept3 + f(grid.idx.ba,copy='grid.idx.z',fixed=F)  + f(score_3, model=spde_score_3 )
-# formula <- Y.log ~  -1  +
-#   Intercept1 + f(grid.idx.cnt, model='bym2',graph=g)  + f(month.idx.cnt, model='rw1' )+
-#   Intercept2 + f(grid.idx.z, model='bym2',graph=g)  + f(month.idx.z, model='rw1' )+
-#   Intercept3 + f(grid.idx.ba, model='bym2',graph=g)  + f(month.idx.ba, model='rw1' )
-
-# formula <- Y.log ~  -1  +
-#   Intercept1 + f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  + f(score_1, model=spde_score_1 )+ year.af.2017.cnt + 
-#   Intercept2 + f(grid.idx.z, model='bym2',graph=g)  + f(score_2, model=spde_score_2 )+  year.af.2017.z +
-#   Intercept3 + f(grid.idx.ba,copy='grid.idx.z',fixed=F)  + f(score_3, model=spde_score_3 ) + year.af.2017.ba
+# knots_cnt.dist <- quantile(data.fit[data.fit$y>0,'score_cnt.dist'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
+# mesh_score_1.dist <- inla.mesh.1d(knots_cnt.dist, boundary=c('free','free'))
+# A1.dist <- inla.spde.make.A(mesh_score_1.dist, loc=data.fit$score_cnt.dist)
+# spde_score_1.dist <-  inla.spde2.pcmatern(mesh_score_1.dist,
+#                                      prior.range = c(1, 0.1),
+#                                      prior.sigma = c(1, 0.05))
+# spde_score_1.dist.idx <- inla.spde.make.index("score_1.dist", n.spde = spde_score_1.dist$n.spde)
 # 
-# formula <- Y.log ~  -1  +
-#   f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  + f(score_1, model=spde_score_1 )+ year.af.2017.cnt +
-#   month_2.cnt + month_3.cnt + month_4.cnt + month_5.cnt + month_6.cnt+
-#   month_7.cnt + month_8.cnt + month_9.cnt + month_10.cnt + month_11.cnt + month_12.cnt + 
-#   
-#   f(grid.idx.z, model='bym2',graph=g)  + f(score_2, model=spde_score_2 )+  year.af.2017.z +  
-#   month_2.z + month_3.z + month_4.z + month_5.z + month_6.z+
-#   month_7.z + month_8.z + month_9.z + month_10.z + month_11.z + month_12.z + 
-#   
-#   f(grid.idx.ba,copy='grid.idx.z',fixed=F)  + f(score_3, model=spde_score_3 ) + year.af.2017.ba + 
-#   month_2.ba + month_3.ba + month_4.ba + month_5.ba + month_6.ba+
-#   month_7.ba + month_8.ba + month_9.ba + month_10.ba + month_11.ba + month_12.ba 
+# 
+# knots_z.dist <- quantile(data.fit[,'score_z.dist'],c(0.05,seq(0.1,0.9,0.1),0.95))
+# mesh_score_2.dist <- inla.mesh.1d(knots_z.dist,boundary=c('free','free'))
+# A2.dist <- inla.spde.make.A(mesh_score_2.dist, loc=data.fit$score_z.dist)
+# spde_score_2.dist <-  inla.spde2.pcmatern(mesh_score_2.dist,
+#                                      prior.range = c(0.1, 0.05),
+#                                      prior.sigma = c(1, 0.05))
+# spde_score_2.dist.idx <- inla.spde.make.index("score_2.dist", n.spde = spde_score_2.dist$n.spde)
+# 
+# 
+# knots_ba.dist <- quantile(data.fit[data.fit$y>0,'score_ba.dist'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
+# mesh_score_3.dist <- inla.mesh.1d(knots_ba.dist, boundary=c('free','free'))
+# A3.dist <- inla.spde.make.A(mesh_score_3.dist, loc=data.fit$score_ba.dist)
+# spde_score_3.dist <-  inla.spde2.pcmatern(mesh_score_3.dist,
+#                                      prior.range = c(10, 0.2),
+#                                      prior.sigma = c(1, 0.1))
+# spde_score_3.dist.idx <- inla.spde.make.index("score_3.dist", n.spde = spde_score_3.dist$n.spde)
+# 
 
-
-
-formula <- Y.log ~  -1  +
-  f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  + f(score_1, model=spde_score_1 )+ year.af.2017.cnt +
-  month_2.cnt + month_3.cnt + month_4.cnt + month_5.cnt + month_6.cnt+
-  month_7.cnt + month_8.cnt + month_9.cnt + month_10.cnt + month_11.cnt + month_12.cnt + 
-  f(score_1.dist, model=spde_score_1.dist ) +
-  
-  f(grid.idx.z, model='bym2',graph=g)  + f(score_2, model=spde_score_2 )+  year.af.2017.z +  
-  month_2.z + month_3.z + month_4.z + month_5.z + month_6.z+
-  month_7.z + month_8.z + month_9.z + month_10.z + month_11.z + month_12.z + 
-  f(score_2.dist, model=spde_score_2.dist ) +  
-  
-  f(grid.idx.ba,copy='grid.idx.z',fixed=F)  + f(score_3, model=spde_score_3 ) + year.af.2017.ba + 
-  month_2.ba + month_3.ba + month_4.ba + month_5.ba + month_6.ba+
-  month_7.ba + month_8.ba + month_9.ba + month_10.ba + month_11.ba + month_12.ba +
-  f(score_3.dist, model=spde_score_3.dist )
-
+# 
+# cnt.stack <- inla.stack(
+#   data= list(Y.log=cbind(cnt,NA,NA)),
+#   A <- list(1,1,A1, 1 , 1,1,1,1,1,1,1,1,1,1,1,1 ,1,1,1,1,1),
+#   effect = list(Intercept1=rep(1,nrow(data.fit)), month.idx.cnt=data.fit$month, score_1=spde_score_1.idx,
+#                 grid.idx.cnt=data.fit$grid.idx, 
+#                 grid.idx.dist.cnt = data.fit$grid.idx.district,
+#                 year.af.2017.cnt = as.integer(data.fit$year>2017),
+#                 month_2.cnt = data.fit$month_2, month_3.cnt = data.fit$month_3,
+#                 month_4.cnt = data.fit$month_4, month_5.cnt = data.fit$month_5,
+#                 month_6.cnt = data.fit$month_6, month_7.cnt = data.fit$month_7,
+#                 month_8.cnt = data.fit$month_8, month_9.cnt = data.fit$month_9,
+#                 month_10.cnt = data.fit$month_10, month_11.cnt = data.fit$month_11,
+#                 month_12.cnt = data.fit$month_12,
+#                 year.idx.cnt=data.fit$year-2010,
+#                 year.af.2017.cnt = as.numeric(data.fit$year>2017),
+#                 eps.time.cnt = data.fit$time.idx,
+#                 eps.dist.cnt = unclass(data.fit$NAME_1)),
+#   tag='cnt'
+# )
+# 
+# z.stack <- inla.stack(
+#   data= list(Y.log=cbind(NA,z,NA)),
+#   A <- list(1,1,A2, 1 , 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1),
+#   effect = list(Intercept2=rep(1,nrow(data.fit)), month.idx.z=data.fit$month, score_2=spde_score_2.idx,
+#                 grid.idx.z=data.fit$grid.idx, 
+#                 grid.idx.dist.z = data.fit$grid.idx.district,
+#                 year.af.2017.z = as.integer(data.fit$year>2017),
+#                 month_2.z = data.fit$month_2, month_3.z = data.fit$month_3,
+#                 month_4.z = data.fit$month_4, month_5.z = data.fit$month_5,
+#                 month_6.z = data.fit$month_6, month_7.z = data.fit$month_7,
+#                 month_8.z = data.fit$month_8, month_9.z = data.fit$month_9,
+#                 month_10.z = data.fit$month_10, month_11.z = data.fit$month_11,
+#                 month_12.z = data.fit$month_12,
+#                 year.idx.z=data.fit$year-2010,
+#                 year.af.2017.z = as.numeric(data.fit$year>2017),
+#                 eps.time.z = data.fit$time.idx,
+#                 eps.dist.z = unclass(data.fit$NAME_1)),
+#   tag='z'
+# )
+# 
+# 
+# ba.stack <- inla.stack(
+#   data= list(Y.log=cbind(NA,NA,log.ba)),
+#   A <- list(1,1, A3, 1 , 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1),
+#   effect = list(Intercept3=rep(1,nrow(data.fit)), month.idx.ba=data.fit$month, score_3=spde_score_3.idx,
+#                 grid.idx.ba = data.fit$grid.idx,
+#                 grid.idx.dist.ba = data.fit$grid.idx.district,
+#                 year.af.2017.ba = as.integer(data.fit$year>2017),
+#                 month_2.ba = data.fit$month_2, month_3.ba = data.fit$month_3,
+#                 month_4.ba = data.fit$month_4, month_5.ba = data.fit$month_5,
+#                 month_6.ba = data.fit$month_6, month_7.ba = data.fit$month_7,
+#                 month_8.ba = data.fit$month_8, month_9.ba = data.fit$month_9,
+#                 month_10.ba = data.fit$month_10, month_11.ba = data.fit$month_11,
+#                 month_12.ba = data.fit$month_12,
+#                 year.idx.ba=data.fit$year-2010,
+#                 year.af.2017.z = as.numeric(data.fit$year>2017),
+#                 eps.time.ba = data.fit$time.idx,
+#                 eps.dist.ba = unclass(data.fit$NAME_1)),
+#   tag='ba'
+# )
+# 
+# 
+# all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
 
 
 n1 <- dim(data.fit)[1]
+nothing <- rep(NA, n1)
 
-res <- inla(formula,
-            family = c('poisson','binomial', 'weibull'), data = inla.stack.data(all.stack),  Ntrials=1,
-            control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-            verbose=TRUE,
-            control.compute=list(config = TRUE),
-            control.family = list( list(), list(), list()),
-            control.fixed = list(expand.factor.strategy = 'inla')
+cntNA <- as.vector(c(cnt,nothing,nothing))
+zNA <- as.vector(c(nothing, z, nothing))
+baNA.log = as.vector(c(nothing, nothing, log.ba))
+
+Y.log <- matrix(c(cntNA,zNA, baNA.log), ncol=3)
+
+grid.idx.cnt = c(data.fit$grid.idx, nothing, nothing)# fire ignition
+grid.idx.z = c(nothing,data.fit$grid.idx, nothing)# BA ind
+grid.idx.ba = c(nothing, nothing, data.fit$grid.idx)# BA
+
+grid.idx.dist.cnt = c(data.fit$grid.idx.district, nothing, nothing)# fire ignition
+grid.idx.dist.z = c(nothing,data.fit$grid.idx.district, nothing)# BA ind
+grid.idx.dist.ba = c(nothing, nothing, data.fit$grid.idx.district)# BA
+
+
+time.idx.cnt <- c(data.fit$time.idx, nothing, nothing)# fire ignition
+time.idx.z <- c(nothing, data.fit$time.idx, nothing)# BA ind
+time.idx.ba  <-  c(nothing, nothing, data.fit$time.idx)# BA
+
+intercept.cnt <- c(rep(1,n1),nothing, nothing)
+intercept.z <- c(nothing, rep(1,n1), nothing)
+intercept.ba <- c(nothing, nothing, rep(1,n1))
+
+score_cnt_grp <- inla.group(data.fit$score_cnt, n = 20, method = "quantile")
+score.cnt <- c(score_cnt_grp,nothing, nothing)
+
+score_z_grp <- inla.group(data.fit$score_z, n = 20, method = "quantile")
+score.z <- c(nothing, score_z_grp, nothing)
+
+score_ba_grp <- inla.group(data.fit$score_ba, n = 20, method = "quantile")
+score.ba <- c(nothing, nothing, score_ba_grp)
+
+
+month.idx.cnt <- c(data.fit$month, nothing, nothing)# fire ignition
+month.idx.z <- c(nothing, data.fit$month, nothing)# BA ind
+month.idx.ba  <-  c(nothing, nothing, data.fit$month)# BA
+
+year.idx <- data.fit$year - 2010
+year.idx.cnt <- c(year.idx, nothing, nothing)# fire ignition
+year.idx.z <- c(nothing, year.idx, nothing)# BA ind
+year.idx.ba  <-  c(nothing, nothing,year.idx)# BA
+
+after.2017 <- as.integer(data.fit$year>2017)
+year.af.2017.cnt <- c(after.2017, nothing, nothing)
+year.af.2017.z <- c(nothing, after.2017, nothing)
+year.af.2017.ba <- c(nothing, nothing,  after.2017)
+
+
+
+data.list=list(Y.log=Y.log, 
+
+          grid.idx.cnt=grid.idx.cnt, 
+          grid.idx.z=grid.idx.z, 
+          grid.idx.ba=grid.idx.ba,
+          
+          grid.idx.dist.cnt = grid.idx.dist.cnt,
+          grid.idx.dist.z = grid.idx.dist.z,
+          grid.idx.dist.ba = grid.idx.dist.ba,
+
+          time.idx.cnt = time.idx.cnt,
+          time.idx.z = time.idx.z,
+          time.idx.ba = time.idx.ba,
+
+          intercept.cnt = intercept.cnt,
+          intercept.z = intercept.z,
+          intercept.ba = intercept.ba,
+          
+          month.idx.cnt = month.idx.cnt,
+          month.idx.z = month.idx.z,
+          month.idx.ba = month.idx.ba,
+          
+          year.idx.cnt = year.idx.cnt,
+          year.idx.z = year.idx.z,
+          year.idx.ba = year.idx.ba,
+          
+          year.af.2017.cnt = year.af.2017.cnt,
+          year.af.2017.z = year.af.2017.z,
+          year.af.2017.ba = year.af.2017.ba,
+          
+          score.cnt = score.cnt,
+          score.z = score.z,
+          score.ba = score.ba
+          
 )
 
+
+
+
+
+# formula <- Y.log ~  0  +
+#   intercept.cnt + year.af.2017.cnt +
+#   f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  +
+#   f(month.idx.cnt, model='seasonal', season.length=12 )+
+#   f(year.idx.cnt, model='rw1')+ f(score.cnt, model='rw1' )+
+#   f(grid.idx.dist.cnt, copy="grid.idx.dist.z",fixed=F, group=time.idx.cnt, control.group = list(model='iid'))  +
+# 
+#   intercept.z + year.af.2017.z +
+#   f(grid.idx.z, model='bym2',graph=g.council)  +
+#   f(month.idx.z, model='seasonal',season.length=12 )+
+#   f(year.idx.z, model='rw1')+  f(score.z, model='rw1' )+
+#   f(grid.idx.dist.z, model='bym2', graph=g.district,group=time.idx.z, control.group = list(model='iid')) +
+# 
+#   intercept.ba + year.af.2017.ba +
+#   f(grid.idx.ba, copy='grid.idx.z',fixed=F)  +
+#   f(month.idx.ba, model='seasonal',season.length=12 ) +
+#   f(year.idx.ba, model='rw1') +  f(score.ba, model='rw1' ) +
+#   f(grid.idx.dist.ba, copy="grid.idx.dist.z",fixed=F, group=time.idx.ba, control.group = list(model='iid'))  
+
+
+formula <- Y.log ~  0  +
+  intercept.cnt + year.af.2017.cnt +
+  f(grid.idx.cnt, copy='grid.idx.z',fixed=F,group=month.idx.cnt,control.group = list(model='iid'))  +
+  f(year.idx.cnt, model='iid')+ f(score.cnt, model='rw1' )+
+  f(grid.idx.dist.cnt, copy="grid.idx.dist.z",fixed=F, group=time.idx.cnt, control.group = list(model='iid'))  +
+  
+  intercept.z + year.af.2017.z +
+  f(grid.idx.z, model='bym2',graph=g.council,group=month.idx.z,control.group = list(model='iid'))  +
+  f(year.idx.z, model='iid')+  f(score.z, model='rw1' )+
+  f(grid.idx.dist.z, model='bym2', graph=g.district,group=time.idx.z, control.group = list(model='iid')) +
+  
+  intercept.ba + year.af.2017.ba +
+  f(grid.idx.ba, copy='grid.idx.z',fixed=F,group=month.idx.ba,control.group = list(model='iid'))  +
+  f(year.idx.ba, model='iid') +  f(score.ba, model='rw1' ) +
+  f(grid.idx.dist.ba, copy="grid.idx.dist.z",fixed=F, group=time.idx.ba, control.group = list(model='iid'))  
+
+
+
+
+
+# save.image(file=file.path(dir.out, 'tmp.RData'))
+# load(file.path(dir.out,'tmp.RData'))
+t1 <- Sys.time()
+res <- inla(formula,
+               family = c('poisson','binomial', 'weibull'), data = data.list,  Ntrials=1,
+               control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+               verbose=TRUE,
+               control.compute=list(config = TRUE),
+               control.family = list( list(), list(), list(control.link=list(quantile=0.5))),
+               control.fixed = list(expand.factor.strategy = 'inla')
+)
+t2 <- Sys.time()
+print(t2-t1)
 
 summary(res)
 
