@@ -29,9 +29,9 @@ data.fit$HVegTyp <- as.factor(data.fit$HVegTyp)
 # levels(data.fit$HVegTyp) <-  c('NoCover','Evergreen_broadleaf_trees','Mixed_forest','Interrupted_forest')
 data.fit$LVegTyp <- as.factor(data.fit$LVegTyp)
 # levels(data.fit$LVegTyp) <- c('NoCover','Crops','Tall_grass','Semidesert','Evergreen_shrubs')
-data.fit$month <- as.factor(data.fit$month)
+# data.fit$month <- as.factor(data.fit$month)
 data.fit <- dummy_cols(data.fit, 
-                       select_columns = c('HVegTyp','LVegTyp','month','NAME_1'),remove_first_dummy=TRUE)
+                       select_columns = c('HVegTyp','LVegTyp','NAME_1'),remove_first_dummy=TRUE)
 
 data.fit$year.af.2017.cnt = as.integer(data.fit$year>2017)
 # covar.names <- colnames(data.fit)[c(-1,-2,-5,-6,-7,-8,-13,-16,-24)]
@@ -40,8 +40,7 @@ covar.names <- c('lon.grid','lat.grid','year',
                  'Pricp','RHumi','Temp','UComp','VComp','DewPoint','WindSpeed',
                  'HVegTyp_6','HVegTyp_18','HVegTyp_19',
                  'LVegTyp_1','LVegTyp_7','LVegTyp_11','LVegTyp_16',
-                 'month_2','month_3','month_4','month_5','month_6','month_7',
-                 'month_8','month_9','month_10','month_11','month_12',
+                 'month',
                  "NAME_1_Beja",
                  "NAME_1_Braga", "NAME_1_Bragança", "NAME_1_Castelo Branco",
                  "NAME_1_Coimbra", "NAME_1_Évora", "NAME_1_Faro",
@@ -102,7 +101,7 @@ weighted_loss_z <- function(y, preds, cnt, area_ha){
   pos.idx <- which(y>0)
   loss.cnt.1 <- weighted_loss(cnt[pos.idx], preds[pos.idx]*cnt[pos.idx], type='CNT')
   loss.ba.1 <- weighted_loss(area_ha[pos.idx], preds[pos.idx]*area_ha[pos.idx], type='BA')
-  
+
   loss.cnt.2 <- weighted_loss(0, preds[-pos.idx]*median.cnt, type='CNT')
   loss.ba.2 <- weighted_loss(0, preds[-pos.idx]*median.ba, type='BA')
 
@@ -209,13 +208,13 @@ xgboost_tune_z <- function(tune_grid){
 # 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = seq(0.05,0.11,0.01),
-  max_depth = 5:10,
+  eta = seq(0.03,0.1,0.01),
+  max_depth = 3:10,
   gamma = 0,
-  scale_pos_weight = seq(600,800,100),
+  scale_pos_weight = 6.87,
   colsample_bytree = 0.7,
-  min_child_weight = 10,
-  subsample = 1
+  min_child_weight = 1,
+  subsample = 0.8
 )
 
 
@@ -227,13 +226,13 @@ print(results_df1[order(results_df1$mean_loss_test,decreasing=F),])
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 9,
+  eta = 0.1,
+  max_depth = 5,
   gamma = 0,
-  scale_pos_weight = seq(600,800,25),
+  scale_pos_weight = 1:15,
   colsample_bytree = 0.7,
-  min_child_weight = 10,
-  subsample = 1
+  min_child_weight = 1,
+  subsample = 0.8
 )
 
 results_df1_1 <- xgboost_tune_z(tune_grid)
@@ -243,13 +242,13 @@ print(results_df1_1[order(results_df1_1$mean_loss_test,decreasing=F),])
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 9,
+  eta = 0.1,
+  max_depth = 5,
   gamma = 0,
-  scale_pos_weight = 700,
+  scale_pos_weight = 6.87,
   colsample_bytree = 0.7,
   min_child_weight = 1:15,
-  subsample = 1
+  subsample = 0.8
 )
 
 results_df2 <- xgboost_tune_z(tune_grid)
@@ -263,12 +262,12 @@ print(results_df2[order(results_df2$mean_loss_test,decreasing=F),])
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 9,
+  eta = 0.1,
+  max_depth = 5,
   gamma = 0,
-  scale_pos_weight = 700,
+  scale_pos_weight = 6.87,
   colsample_bytree = c(0.4,0.5,0.6,0.7,0.8,0.9,1),
-  min_child_weight = 10,
+  min_child_weight = 7,
   subsample = c(0.4,0.5,0.6,0.7,0.8,0.9,1)
 )
 
@@ -281,13 +280,13 @@ print(results_df3[order(results_df3$mean_loss_test,decreasing=F),])
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 9,
+  eta = 0.1,
+  max_depth = 5,
   gamma = seq(0,1,0.1),
-  scale_pos_weight = 700,
+  scale_pos_weight = 6.87,
   colsample_bytree = 0.7,
-  min_child_weight = 10,
-  subsample = 1
+  min_child_weight = 7,
+  subsample = 0.8
 )
 
 results_df4 <- xgboost_tune_z(tune_grid)
@@ -298,13 +297,13 @@ print(results_df4[order(results_df4$mean_loss_test,decreasing=F),])
 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
-  eta = 0.07,
-  max_depth = 9,
+  eta = 0.1,
+  max_depth = 5,
   gamma = 0,
-  scale_pos_weight = 700,
+  scale_pos_weight = 6.87,
   colsample_bytree = 0.7,
-  min_child_weight = 10,
-  subsample = 1
+  min_child_weight = 7,
+  subsample = 0.8
 )
 #
 results_df5 <- xgboost_tune_z(tune_grid)
@@ -318,23 +317,27 @@ print(results_df5[order(results_df5$mean_loss_test,decreasing=F),])
 plot(results_df5$nrounds,results_df5$mean_auc_train,type='l',col='blue',ylim=c(0.85,0.95))
 lines(results_df5$nrounds,results_df5$mean_auc_test,col='red',type='l')
 
-tune_grid_z <- expand.grid(
+params_z <- list(
   nrounds = 100,
-  eta = 0.07,
-  max_depth = 9,
+  eta = 0.1,
+  max_depth = 5,
   gamma = 0,
-  scale_pos_weight = 700,
+  scale_pos_weight = 6.87,
   colsample_bytree = 0.7,
-  min_child_weight = 10,
-  subsample = 1
+  min_child_weight = 7,
+  subsample = 0.8,
+  objective = "binary:logistic",
+  verbosity = 0
 )
-
 
 
 ################################## Log BA ###########################
 kfold_cv_pos <- function(data, target.name ,covar.names, params, k) {
   loss_train_list <- numeric(k)
   loss_test_list <- numeric(k)
+  
+  wloss_train_list <- numeric(k)
+  wloss_test_list <- numeric(k)
 
   for (i in 1:k) {
     select.year <- 2011:2013 + 3*(i-1)
@@ -362,18 +365,31 @@ kfold_cv_pos <- function(data, target.name ,covar.names, params, k) {
     train_pred <- predict(model, dtrain)
     test_pred <- predict(model, dtest)
 
-    loss_train <- weighted_loss(exp(train_target), exp(train_pred),'BA')
-    loss_test <- weighted_loss(exp(test_target), exp(test_pred), 'BA')
+    # loss_train <- weighted_loss(exp(train_target), exp(train_pred),'BA')
+    # loss_test <- weighted_loss(exp(test_target), exp(test_pred), 'BA')
+    
+    loss_train <- sum((train_target - train_pred)^2)
+    loss_test <- sum((test_target - test_pred)^2)
+    
+    wloss_train <- weighted_loss(exp(train_target),exp(train_pred),'BA')
+    wloss_test <- weighted_loss(exp(test_target), exp(test_pred), 'BA')
 
     loss_train_list[i] <- loss_train
     loss_test_list[i] <- loss_test
+    
+    wloss_train_list[i] <- wloss_train
+    wloss_test_list[i] <- wloss_test
   }
 
   mean_loss_train <- sum(loss_train_list)/k
   mean_loss_test <- sum(loss_test_list)
+  
+  mean_wloss_train <- sum(wloss_train_list)/k
+  mean_wloss_test <- sum(wloss_test_list)
 
 
-  return(list(mean_loss_test = mean_loss_test, mean_loss_train = mean_loss_train))
+  return(list(mean_loss_test = mean_loss_test, mean_loss_train = mean_loss_train,
+              weighted_loss_train = mean_wloss_train, weighted_loss_test =mean_wloss_test ))
 }
 
 xgboost_tune_ba <- function(tune_grid){
@@ -388,8 +404,10 @@ xgboost_tune_ba <- function(tune_grid){
     min_child_weight = numeric(0),
     subsample = numeric(0),
     nrounds = numeric(0),
-    mean_loss_train = numeric(0),
-    mean_loss_test = numeric(0),
+    loss_train = numeric(0),
+    loss_test = numeric(0),
+    weighted_loss_train = numeric(0),
+    weighed_loss_test = numeric(0),
     objective=character(0)
 
   )
@@ -418,9 +436,12 @@ xgboost_tune_ba <- function(tune_grid){
       min_child_weight = tune_grid$min_child_weight[i],
       subsample = tune_grid$subsample[i],
       nrounds = tune_grid$nrounds[i],
-      mean_loss_train = result$mean_loss_train,
-      mean_loss_test = result$mean_loss_test,
-      objective = tune_grid$objective[i]
+      loss_train = result$mean_loss_train,
+      loss_test = result$mean_loss_test,
+      objective = tune_grid$objective[i],
+      weighted_loss_train = result$weighted_loss_train,
+      weighted_loss_test = result$weighted_loss_test
+      
     ))
   }
 
@@ -430,46 +451,46 @@ xgboost_tune_ba <- function(tune_grid){
 tune_grid <- expand.grid(
   nrounds = 100,
   eta = seq(0.02,0.1,0.01),
-  max_depth = c(3,4,5,6,7,8,9,10),
+  max_depth = c(2,3,4,5),
   gamma = 0,
-  colsample_bytree = 1,
-  min_child_weight = 10,
-  subsample = 1,
+  colsample_bytree = 0.7,
+  min_child_weight = 1,
+  subsample = 0.8,
   objective=c('reg:squarederror')
 )
 
 
 results_df_reg <- xgboost_tune_ba(tune_grid)
 
-results_df_reg[order(results_df_reg$mean_loss_test,decreasing=F),]
+results_df_reg[order(results_df_reg$loss_test,decreasing=F),]
 
 
 
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.08,
-  max_depth = 4,
+  eta = 0.09,
+  max_depth = 2,
   gamma = 0,
-  colsample_bytree = 1,
+  colsample_bytree = 0.7,
   min_child_weight = 1:10,
-  subsample = 1,
+  subsample = 0.8,
   objective=c('reg:squarederror')
 )
 
 results_df_reg_1 <- xgboost_tune_ba(tune_grid)
 
-results_df_reg_1[order(results_df_reg_1$mean_loss_test,decreasing=F),]
+results_df_reg_1[order(results_df_reg_1$loss_test,decreasing=F),]
 
 
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.08,
-  max_depth = 4,
+  eta = 0.09,
+  max_depth = 2,
   gamma = 0,
   colsample_bytree = seq(0.4,1,0.1),
-  min_child_weight = 7,
+  min_child_weight = 3,
   subsample = seq(0.4,1,0.1),
   objective=c('reg:squarederror')
 )
@@ -477,18 +498,18 @@ tune_grid <- expand.grid(
 
 results_df_reg_2 <- xgboost_tune_ba(tune_grid)
 
-results_df_reg_2[order(results_df_reg_2$mean_loss_test,decreasing=F),]
+results_df_reg_2[order(results_df_reg_2$loss_test,decreasing=F),]
 
 
 
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.08,
-  max_depth = 4,
-  gamma = seq(0,2,0.1),
-  colsample_bytree = 0.8,
-  min_child_weight = 7,
+  eta = 0.09,
+  max_depth = 2,
+  gamma = 0:10,
+  colsample_bytree = 0.7,
+  min_child_weight = 3,
   subsample = 0.8,
   objective=c('reg:squarederror')
 )
@@ -496,44 +517,69 @@ tune_grid <- expand.grid(
 
 results_df_reg_4 <- xgboost_tune_ba(tune_grid)
 
-results_df_reg_4[order(results_df_reg_4$mean_loss_test,decreasing=F),]
+results_df_reg_4[order(results_df_reg_4$loss_test,decreasing=F),]
 
 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
-  eta = 0.08,
-  max_depth = 4,
-  gamma = 1,
-  colsample_bytree = 0.8,
-  min_child_weight = 7,
+  eta = 0.09,
+  max_depth = 2,
+  gamma = 3,
+  colsample_bytree = 0.7,
+  min_child_weight = 3,
   subsample = 0.8,
   objective=c('reg:squarederror')
 )
 
 
 results_df_reg_5 <- xgboost_tune_ba(tune_grid)
-results_df_reg_5
-results_df_reg_5[order(results_df_reg_5$mean_loss_test,decreasing=F),]
+results_df_reg_5[order(results_df_reg_5$loss_test,decreasing=F),]
 
 
 
 plot(results_df_reg_5$nrounds,results_df_reg_5$mean_loss_train,type='l',col='blue')
 plot(results_df_reg_5$nrounds,results_df_reg_5$mean_loss_test,col='red')
 
-tune_grid <- expand.grid(
-  nrounds = 100,
-  eta = 0.08,
-  max_depth = 4,
-  gamma = 1,
-  colsample_bytree = 0.8,
-  min_child_weight = 7,
-  subsample = 0.8,
-  objective=c('reg:squarederror')
-)
 
+params_ba <- list(
+  nrounds = 100,
+  eta = 0.09,
+  max_depth =  2,
+  gamma = 3,
+  colsample_bytree = 0.7,
+  min_child_weight = 3,
+  subsample = 0.8,
+  objective='reg:squarederror'
+)
 
 ################################### Count ###############################
 
+trunc_poisson_loss <- function(y,preds){
+  lambda <- exp(preds)
+  return(sum(lambda - y*preds + log(1-exp(-lambda))))
+}
+
+
+trunc_poisson_obj <- function(preds, dtrain) {
+  # preds: Vector of raw predictions from XGBoost (f(x))
+  # dtrain: xgb.DMatrix with data
+  # label: observed counts (must be > 0 for truncated Poisson)
+  y <- getinfo(dtrain, "label")
+
+  # Compute lambda = exp(pred)
+  lambda <- exp(preds)
+
+  # Compute gradient
+  # g = lambda - y + (lambda * exp(-lambda)) / (1 - exp(-lambda))
+  g <- lambda - y + (lambda * exp(-lambda)) / (1 - exp(-lambda))
+
+  # Compute hessian
+  # h = lambda + [lambda * exp(-lambda) * (1 - lambda - exp(-lambda))] / (1 - exp(-lambda))^2
+  numerator <- lambda * exp(-lambda) * (1 - lambda - exp(-lambda))
+  denominator <- (1 - exp(-lambda))^2
+  h <- lambda + numerator / denominator
+  return(list(grad = g, hess = h))
+}
 
 
 
@@ -541,6 +587,8 @@ tune_grid <- expand.grid(
 kfold_cv_poisson <- function(data, target.name ,covar.names, params, k) {
   loss_train_list <- numeric(k)
   loss_test_list <- numeric(k)
+  wloss_train_list <- numeric(k)
+  wloss_test_list <- numeric(k)
   
   for (i in 1:k) {
     select.year <- 2011:2013 + 3*(i-1)
@@ -568,18 +616,31 @@ kfold_cv_poisson <- function(data, target.name ,covar.names, params, k) {
     train_pred <- predict(model, dtrain)
     test_pred <- predict(model, dtest)
     
-    loss_train <- weighted_loss(train_target,train_pred,type='CNT')
-    loss_test <- weighted_loss(test_target,test_pred,type='CNT')
+    # loss_train <- weighted_loss(train_target,train_pred,type='CNT')
+    # loss_test <- weighted_loss(test_target,test_pred,type='CNT')
+    
+    loss_train <- trunc_poisson_loss(train_target,train_pred)
+    loss_test <- trunc_poisson_loss(test_target,test_pred)
+    
+    wloss_train <- weighted_loss((train_target),exp(train_pred),'CNT')
+    wloss_test <- weighted_loss((test_target), exp(test_pred), 'CNT')
     
     loss_train_list[i] <- loss_train
     loss_test_list[i] <- loss_test
+    
+    wloss_train_list[i] <- wloss_train
+    wloss_test_list[i] <- wloss_test
   }
   
   mean_loss_train <- sum(loss_train_list)/k
   mean_loss_test <- sum(loss_test_list)
   
+  mean_wloss_train <- sum(wloss_train_list)/k
+  mean_wloss_test <- sum(wloss_test_list)
   
-  return(list(mean_loss_test = mean_loss_test, mean_loss_train = mean_loss_train))
+  
+  return(list(mean_loss_test = mean_loss_test, mean_loss_train = mean_loss_train,
+              mean_wloss_train=mean_wloss_train, mean_wloss_test = mean_wloss_test ))
 }
 
 xgboost_tune_cnt <- function(tune_grid){
@@ -596,6 +657,8 @@ xgboost_tune_cnt <- function(tune_grid){
     nrounds = numeric(0),
     mean_loss_train = numeric(0),
     mean_loss_test = numeric(0),
+    weighted_loss_train = numeric(0),
+    weighted_loss_test = numeric(0),
     objective=character(0)
 
   )
@@ -609,7 +672,7 @@ xgboost_tune_cnt <- function(tune_grid){
       min_child_weight = tune_grid$min_child_weight[i],
       subsample = tune_grid$subsample[i],
       nrounds = tune_grid$nrounds[i],
-      objective = tune_grid$objective[i],
+      objective = trunc_poisson_obj,
       verbosity = 0,
       eval_metric = "logloss"
     )
@@ -627,7 +690,9 @@ xgboost_tune_cnt <- function(tune_grid){
       nrounds = tune_grid$nrounds[i],
       mean_loss_train = result$mean_loss_train,
       mean_loss_test = result$mean_loss_test,
-      objective = tune_grid$objective[i]
+      weighted_loss_train = result$mean_wloss_train,
+      weighted_loss_test = result$mean_wloss_test,
+      objective = 'truncated_poisson'
     ))
   }
 
@@ -638,13 +703,12 @@ xgboost_tune_cnt <- function(tune_grid){
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = seq(0.03,0.1,0.01),
-  max_depth = 2:11,
+  eta = seq(0.01,0.1,0.01),
+  max_depth = 2:7,
   gamma = 0,
   colsample_bytree =0.8,
   min_child_weight = 1,
-  subsample = 0.7,
-  objective=c('count:poisson')
+  subsample = 0.7
 )
 
 
@@ -656,13 +720,12 @@ results_df_pois_1[order(results_df_pois_1$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.06,
-  max_depth = 10,
+  eta = 0.03,
+  max_depth = 5,
   gamma = 0,
   colsample_bytree = 0.8,
   min_child_weight = 1:15,
-  subsample = 0.7,
-  objective=c('count:poisson')
+  subsample = 0.7
 )
 results_df_pois_3 <- xgboost_tune_cnt(tune_grid)
 
@@ -671,13 +734,12 @@ results_df_pois_3[order(results_df_pois_3$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.06,
-  max_depth = 10,
+  eta = 0.03,
+  max_depth = 5,
   gamma = 0,
   colsample_bytree = seq(0.4,1,0.1),
-  min_child_weight = 14,
-  subsample = seq(0.4,1,0.1),
-  objective=c('count:poisson')
+  min_child_weight = 1,
+  subsample = seq(0.4,1,0.1)
 )
 results_df_pois_4 <- xgboost_tune_cnt(tune_grid)
 
@@ -686,13 +748,12 @@ results_df_pois_4[order(results_df_pois_4$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = 100,
-  eta = 0.06,
-  max_depth = 10,
+  eta = 0.03,
+  max_depth = 5,
   gamma = seq(0,1,0.1),
-  colsample_bytree = 0.8,
-  min_child_weight = 14,
-  subsample = 0.7,
-  objective=c('count:poisson')
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 0.4
 )
 results_df_pois_5 <- xgboost_tune_cnt(tune_grid)
 
@@ -701,13 +762,12 @@ results_df_pois_5[order(results_df_pois_5$mean_loss_test,decreasing=F),]
 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
-  eta = 0.06,
-  max_depth = 10,
+  eta = 0.03,
+  max_depth = 5,
   gamma = 0.9,
-  colsample_bytree = 0.8,
-  min_child_weight = 14,
-  subsample = 0.7,
-  objective=c('count:poisson')
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 0.4
 )
 results_df_pois_6 <- xgboost_tune_cnt(tune_grid)
 
@@ -717,13 +777,13 @@ results_df_pois_6[order(results_df_pois_6$mean_loss_test,decreasing=F),]
 plot(results_df_pois_6$nrounds,results_df_pois_6$mean_loss_train,type='l',col='blue')
 lines(results_df_pois_6$nrounds,results_df_pois_6$mean_loss_test,col='red')
 
-tune_grid <- expand.grid(
-  nrounds = 100,
-  eta = 0.06,
-  max_depth = 10,
+params_cnt <- list(
+  nrounds = 95,
+  eta = 0.03,
+  max_depth = 5,
   gamma = 0.9,
-  colsample_bytree = 0.8,
-  min_child_weight = 14,
-  subsample = 0.7,
-  objective=c('count:poisson')
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 0.4,
+  objective=trunc_poisson_obj
 )
