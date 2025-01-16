@@ -11,7 +11,7 @@ func_1 <- function(x){
   return(-ll)
 }
 
-point <- c(4,1,3,-0.2)
+point <- c(2,1,2,0.2)
 
 sigma <- point[1]
 y <- point[2]
