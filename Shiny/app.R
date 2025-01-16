@@ -11,20 +11,19 @@ library(dplyr)
 library(leaflet)
 
 setwd('/home/pgrad2/2448355h/My_PhD_Project/Portugal_Wildfire/Shiny')
-dir.out <- '/home/pgrad2/2448355h/My_PhD_Project/01_Output/Urban_Fire_Model'
+dir.data <- "/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Porgual_Wildfire"
+dir.out <- '/home/pgrad2/2448355h/My_PhD_Project/01_Output/Portugal_Wildfire'
 
-# load("grid_cell_map.RData")
-# load('Final_Model_3.2_pred.sp_1000.RData')
-# n.grid <- 192
 
-load(file.path(dir.out,'data.fit2.score_0.125.RData'))
-load(file.path(dir.out,'grid_cell_map_0.125.RData'))
-load(file.path(dir.out,'Model_weibull_spde_0.125_pred_0.125_pred_sp_200.RData'))
+# load(file.path(dir.out,'data.fit.score_0.125.RData'))
+load(file.path(dir.out,'grid_cell_map_0.1.RData'))
+load(file.path(dir.out,'Model_weibull_spde_0.1_pred_sp_200.RData'))
+load(file.path(dir.data, "Data_For_Fitting.RData"))
 
-# load(file.path(dir.out, 'data.fit2.pred_0.0625.RData'))
+# load(file.path(dir.out, 'data.fit.pred_0.0625.RData'))
 # load(file=file.path(dir.out,'Model_weibull_0.125_pred_0.0625_pred_sp_200.RData'))
 # load(file.path(dir.out,'grid_cell_map_0.0625.RData'))
-n.grid <- 681
+n.grid <- 925
 # n.grid <- 2554
 
 pred.cnt <- pred.sp$pred.cnt
@@ -56,7 +55,7 @@ rm(pred.sp)
 # sf_districts <- st_as_sf(dist)
 
 
-conc<-shapefile("/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Urban_Fires/concelhos.shp")
+conc<-shapefile(file.path(dir.data, "shapefile","concelhos.shp"))
 conc$ID_0 <- as.factor(iconv(as.character(conc$ID_0),  "UTF-8"))
 conc$ISO <- as.factor(iconv(as.character(conc$ISO), "UTF-8"))
 conc$NAME_0 <- as.factor(iconv(as.character(conc$NAME_0), "UTF-8"))
@@ -79,7 +78,7 @@ ggplot(sf_conc)+ geom_sf()
 
 
 
-grid.cell.coord <- st_as_sf(data.fit2, coords = c("lon.grid", "lat.grid"), crs = 4326)
+grid.cell.coord <- st_as_sf(data.fit, coords = c("lon.grid", "lat.grid"), crs = 4326)
 
 # merged_sf <- st_join(grid.cell.coord, sf_districts[,'NAME_1'], join = st_within)
 merged_sf1 <- st_drop_geometry(st_join(grid.cell.coord, sf_conc[,'NAME_2'], join = st_nearest_feature))
@@ -88,11 +87,11 @@ merged_sf1 <- st_drop_geometry(st_join(grid.cell.coord, sf_conc[,'NAME_2'], join
 B2_sf <- st_as_sf(B2.merge)
 
 
-B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:108))
+B2_sf <- gather(B2_sf, y.time.idx, y, paste0("y.", 1:156))
 B2_sf$time.idx <- as.integer(substring(B2_sf$y.time.idx, 3, 5))
 
-data.fit2[is.na(data.fit2$log_ba),'log_ba'] <- 0
-B2_sf$log_ba <- data.fit2$log_ba
+data.fit[is.na(data.fit$log_ba),'log_ba'] <- 0
+B2_sf$log_ba <- data.fit$log_ba
 
 B2_sf <- merge(B2_sf,merged_sf1[,c('grid.idx','time.idx','NAME_2')],by=c('grid.idx','time.idx')) %>%
          arrange(time.idx,grid.idx)
@@ -106,7 +105,7 @@ ui <- fluidPage(
     
     sidebarPanel(
       selectInput("year", "Select Year:", 
-                  choices = 2012:2020, selected = 2020),
+                  choices = 2011:2023, selected = 2023),
       
       # Input for month selection
       selectInput("month", "Select Month:", 
@@ -176,7 +175,7 @@ server <- function(input, output, session) {
                     "October"=10,
                     "November"=11,
                     "December"=12)
-    idx <- 12*(year-2012) + month
+    idx <- 12*(year-2011) + month
     B2_sf <- B2_sf[B2_sf$time.idx == idx, ]
     
     grid.month.idx <- (1+(idx-1)*n.grid ): (idx*n.grid)
