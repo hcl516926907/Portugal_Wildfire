@@ -12,3 +12,4 @@
 /Shiny/dist*
 /Shiny/rsconnect/*
 *.adj
+/Shiny/*.adj
