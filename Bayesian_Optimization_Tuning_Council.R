@@ -248,7 +248,7 @@ print( xgb_z_params$Best_Value)
 
 
 tune_grid <- expand.grid(
-  nrounds = seq(10,100,5),
+  nrounds = 100,
   eta = z_best_params['eta'],
   max_depth =  z_best_params['max_depth'],
   gamma = 0,
@@ -273,6 +273,7 @@ param_z <- list(
 )
 
 save(param_z,z_best_params, file=file.path(dir.out,'XGBoost_z_council_hyperpara.RData'))
+load(file=file.path(dir.out,'XGBoost_z_council_hyperpara.RData'))
 
 #######################################
 dextGP <- function(y,xi, sigma, kappa, log=FALSE){
@@ -637,32 +638,46 @@ param_ba <- list(
 save(param_ba, ba_best_params,custom_obj, file=file.path(dir.out,'XGBoost_ba_council_hyperpara.RData'))
 
 ##########################################
-trunc_poisson_loss <- function(y,preds){
-  lambda <- exp(preds)
-  return(mean(lambda - y*preds + log(1-exp(-lambda))))
+weighted_loss_cnt <- function(y, preds){
+  thres.cnt <- c(0:10,15,20,30)
+  loss <- rep(NA,length(thres.cnt))
+  w <- 1 - (1+(thres.cnt+1)^2/1000)^{-1/4}
+  w <- w/w[length(thres.cnt)]
+  for (i in 1:length(thres.cnt)){
+    thres <- thres.cnt[i]
+    p.true <-  y <= thres
+    p.pred <-  ppois(thres, preds)
+    loss[i] <- sum(w[i]*(p.true - p.pred)^2) 
+  }
+  return(sum(loss))
 }
 
+# trunc_poisson_loss <- function(y,preds){
+#   lambda <- exp(preds)
+#   return(mean(lambda - y*preds + log(1-exp(-lambda))))
+# }
 
-trunc_poisson_obj <- function(preds, dtrain) {
-  # preds: Vector of raw predictions from XGBoost (f(x))
-  # dtrain: xgb.DMatrix with data
-  # label: observed counts (must be > 0 for truncated Poisson)
-  y <- getinfo(dtrain, "label")
-  
-  # Compute lambda = exp(pred)
-  lambda <- exp(preds)
-  
-  # Compute gradient
-  # g = lambda - y + (lambda * exp(-lambda)) / (1 - exp(-lambda))
-  g <- lambda - y + (lambda * exp(-lambda)) / (1 - exp(-lambda))
-  
-  # Compute hessian
-  # h = lambda + [lambda * exp(-lambda) * (1 - lambda - exp(-lambda))] / (1 - exp(-lambda))^2
-  numerator <- lambda * exp(-lambda) * (1 - lambda - exp(-lambda))
-  denominator <- (1 - exp(-lambda))^2
-  h <- lambda + numerator / denominator
-  return(list(grad = g, hess = h))
-}
+# 
+# trunc_poisson_obj <- function(preds, dtrain) {
+#   # preds: Vector of raw predictions from XGBoost (f(x))
+#   # dtrain: xgb.DMatrix with data
+#   # label: observed counts (must be > 0 for truncated Poisson)
+#   y <- getinfo(dtrain, "label")
+#   
+#   # Compute lambda = exp(pred)
+#   lambda <- exp(preds)
+#   
+#   # Compute gradient
+#   # g = lambda - y + (lambda * exp(-lambda)) / (1 - exp(-lambda))
+#   g <- lambda - y + (lambda * exp(-lambda)) / (1 - exp(-lambda))
+#   
+#   # Compute hessian
+#   # h = lambda + [lambda * exp(-lambda) * (1 - lambda - exp(-lambda))] / (1 - exp(-lambda))^2
+#   numerator <- lambda * exp(-lambda) * (1 - lambda - exp(-lambda))
+#   denominator <- (1 - exp(-lambda))^2
+#   h <- lambda + numerator / denominator
+#   return(list(grad = g, hess = h))
+# }
 
 
 xgb_cnt_cv   <- function(eta, max_depth, min_child_weight, subsample, colsample_bytree) {
@@ -674,7 +689,7 @@ xgb_cnt_cv   <- function(eta, max_depth, min_child_weight, subsample, colsample_
   target.name <- 'y'
   
   params <- list(
-    objective = trunc_poisson_obj,
+    objective = 'count:poisson',
     eta = eta,
     max_depth = as.integer(max_depth),
     min_child_weight = min_child_weight,
@@ -710,16 +725,16 @@ xgb_cnt_cv   <- function(eta, max_depth, min_child_weight, subsample, colsample_
     test_pred <- predict(model, dtest)
     
     
-    loss_train <- trunc_poisson_loss(train_target,train_pred)
-    loss_test <- trunc_poisson_loss(test_target,test_pred)
+    loss_train <- weighted_loss_cnt(train_target,train_pred)
+    loss_test <- weighted_loss_cnt(test_target,test_pred)
     
     loss_train_list[i] <- loss_train
     loss_test_list[i] <- loss_test
     
   }
   
-  mean_loss_train <- mean(loss_train_list)
-  mean_loss_test <- mean(loss_test_list)
+  mean_loss_train <- sum(loss_train_list)/k
+  mean_loss_test <- sum(loss_test_list)
   
   
   return(list(Score=-mean_loss_test,Pred=NULL))
@@ -784,15 +799,16 @@ kfold_cv_poisson <- function(data, target.name ,covar.names, params, k) {
     train_pred <- predict(model, dtrain)
     test_pred <- predict(model, dtest)
     
-    loss_train <- trunc_poisson_loss(train_target,train_pred)
-    loss_test <- trunc_poisson_loss(test_target,test_pred)
+    loss_train <- weighted_loss_cnt(train_target,train_pred)
+    loss_test <- weighted_loss_cnt(test_target,test_pred)
     
     loss_train_list[i] <- loss_train
     loss_test_list[i] <- loss_test
+    
   }
   
-  mean_loss_train <- mean(loss_train_list)
-  mean_loss_test <- mean(loss_test_list)
+  mean_loss_train <- sum(loss_train_list)/k
+  mean_loss_test <- sum(loss_test_list)
   
   
   return(list(mean_loss_test = mean_loss_test, mean_loss_train = mean_loss_train))
@@ -825,7 +841,7 @@ xgboost_tune_cnt <- function(tune_grid){
       min_child_weight = tune_grid$min_child_weight[i],
       subsample = tune_grid$subsample[i],
       nrounds = tune_grid$nrounds[i],
-      objective = trunc_poisson_obj,
+      objective = 'count:poisson',
       verbosity = 0
     )
     
@@ -850,7 +866,7 @@ xgboost_tune_cnt <- function(tune_grid){
 }
 
 
-
+# 
 tune_grid <- expand.grid(
   nrounds = seq(10,100,5),
   eta = cnt_best_params['eta'],
@@ -861,6 +877,17 @@ tune_grid <- expand.grid(
   subsample = cnt_best_params['subsample'],
   objective=c('count:poisson')
 )
+
+# tune_grid <- expand.grid(
+#   nrounds = seq(10,100,5),
+#   eta = 0.1,
+#   max_depth = 5,
+#   gamma = 0,
+#   colsample_bytree = 1,
+#   min_child_weight = 1,
+#   subsample = 1,
+#   objective=c('count:poisson')
+# )
 
 
 results_df_pois_1 <- xgboost_tune_cnt(tune_grid)
