@@ -21,196 +21,16 @@ library(scoringRules)
 library(fastDummies)
 # bru_safe_sp(force = TRUE)
 
-load(file.path(dir.data, "Data_For_Fitting_Council.RData"))
-data.fit <- data.fit.council[data.fit.council$NAME_1=='Viseu',]
+# district <- 'Viana do Castelo'
+district <- 'Évora'
+load(file.path(dir.out, "XGBoost_Score_Council.RData"))
+data.fit <- data.fit[data.fit$NAME_1==district,]
 
 
 ####################################################################
 # INLA
 ####################################################################
 
-data.fit$z <- as.vector((data.fit$y>0)+0)
-data.fit$HVegTyp <- as.factor(data.fit$HVegTyp)
-# levels(data.fit$HVegTyp) <-  c('NoCover','Evergreen_broadleaf_trees','Mixed_forest','Interrupted_forest')
-data.fit$LVegTyp <- as.factor(data.fit$LVegTyp)
-# levels(data.fit$LVegTyp) <- c('NoCover','Crops','Tall_grass','Semidesert','Evergreen_shrubs')
-data.fit$month <- as.factor(data.fit$month)
-data.fit <- dummy_cols(data.fit, 
-                       select_columns = c('HVegTyp','LVegTyp','month'),remove_first_dummy=TRUE)
-
-covar.names <- c('lon.grid','lat.grid','year',
-                 'FWI','HVegCov','HVegLAI','LVegCov','LVegLAI',
-                 'Pricp','RHumi','Temp','UComp','VComp','DewPoint','WindSpeed',
-                 'HVegTyp_19',
-                 'LVegTyp_7','LVegTyp_16',
-                 'month_2','month_3','month_4','month_5','month_6','month_7','month_8','month_9','month_10','month_11','month_12'
-)
-
-data.rf <- data.fit[data.fit$year <= 2022, c(covar.names,'grid.idx','time.idx','area_ha','z','y')]
-
-#
-library(xgboost)
-# library(caret)
-library(pROC)
-data.rf$log_ba <- log(data.rf$area_ha)
-data.rf[is.na(data.rf$log_ba),'log_ba'] <- 0
-
-kfold_cv_pred  <- function(data, target.name ,covar.names, params, k) {
-  auc_train_list <- numeric(k)
-  auc_test_list <- numeric(k)
-  
-  for (i in 1:k) {
-    select.year <- 2011:2013 + 3*(i-1)
-    index <- which(data$year %in% select.year )
-    train_data <- data[-index, covar.names ]
-    train_target <- data[-index, target.name]
-    test_data <- data[index, covar.names]
-    test_target <- data[index, target.name ]
-    
-    dtrain <- xgb.DMatrix(data = as.matrix(train_data), label = train_target)
-    dtest <- xgb.DMatrix(data = as.matrix(test_data), label = test_target)
-    
-    set.seed(1234)
-    model <- xgb.train(params = params, data = dtrain, nrounds = params$nrounds)
-    
-    train_pred <- predict(model, dtrain)
-    test_pred <- predict(model, dtest)
-    
-    data[index,'score'] <- test_pred
-  }
-  
-  
-  return(data$score)
-}
-
-
-params_z <- list(
-  nrounds = 100,
-  eta = 0.09,
-  max_depth = 7,
-  gamma = 0.7,
-  scale_pos_weight = 2,
-  colsample_bytree = 0.4,
-  min_child_weight = 1,
-  subsample = 1,
-  objective = "binary:logistic",
-  eval_metric = "auc",
-  verbosity = 0
-)
-
-#
-data.rf$score_z <- kfold_cv_pred(data.rf, 'z', covar.names ,params_z, 4)
-
-
-TrainSet1 <- xgb.DMatrix(data=as.matrix(data.rf[, c(covar.names)]),label=data.rf[, c('z')])
-set.seed(1234)
-model.z <- xgb.train(params = params_z, data = TrainSet1, nrounds = params_z$nrounds)
-
-
-data.fit[data.fit$year <= 2022, 'score_z'] <- data.rf$score_z
-data.fit[data.fit$year > 2022, 'score_z'] <- predict(model.z, as.matrix(data.fit[data.fit$year > 2022,c(covar.names)]))
-
-#
-#
-# # with coordiantes
-params_ba <- list(
-  nrounds = 100,
-  eta = 0.05,
-  max_depth = 3,
-  gamma = 0.2,
-  colsample_bytree = 0.4,
-  min_child_weight = 5,
-  subsample = 0.5,
-  objective=c('reg:squarederror')
-)
-# 
-# 
-kfold_cv_pred_pos <- function(data, target.name ,covar.names, params, k) {
-  loss_train_list <- numeric(k)
-  loss_test_list <- numeric(k)
-  for (i in 1:k) {
-    select.year <- 2011:2013 + 3*(i-1)
-    index <- which(data$year %in% select.year )
-    train_data <- data[-index, covar.names ]
-    train_target <- data[-index, target.name]
-    pos.ind.train <- train_target>0
-    train_data <- train_data[pos.ind.train,]
-    train_target <- train_target[pos.ind.train]
-    # print(table(data[-index,'grid.idx']))
-    
-    test_data <- data[index, covar.names]
-    test_target <- data[index, target.name ]
-    
-    
-    dtrain <- xgb.DMatrix(data = as.matrix(train_data), label = train_target)
-    dtest <- xgb.DMatrix(data = as.matrix(test_data), label = test_target)
-    
-    set.seed(1234)
-    model <- xgb.train(params = params, data = dtrain, nrounds = params$nrounds)
-    
-    train_pred <- predict(model, dtrain)
-    test_pred <- predict(model, dtest)
-    
-    data[index, 'score'] <- test_pred
-  }
-  
-  
-  return(data$score)
-}
-
-
-data.rf$score_ba <- kfold_cv_pred_pos(data.rf,'log_ba',covar.names, params_ba, 4)
-
-TrainSet2 <- xgb.DMatrix(data=as.matrix(data.rf[data.rf$y>0, c(covar.names)]),label=data.rf[data.rf$y>0, c('log_ba')])
-#
-set.seed(1234)
-model.ba <- xgb.train(params = params_ba, data = TrainSet2, nrounds = params_ba$nrounds)
-
-
-data.fit[data.fit$year <= 2022, 'score_ba'] <- data.rf$score_ba
-data.fit[data.fit$year > 2022, 'score_ba'] <- predict(model.ba, as.matrix(data.fit[data.fit$year > 2022,c(covar.names)]))
-
-# 
-# 
-params_cnt <- list(
-  nrounds = 95,
-  eta = 0.09,
-  max_depth = 6,
-  gamma = 0,
-  colsample_bytree = 0.7,
-  min_child_weight = 1,
-  subsample = 0.5,
-  objective=c('count:poisson')
-)
-
-data.rf$score_cnt <- kfold_cv_pred_pos(data.rf,'y',covar.names, params_ba, 4)
-
-
-TrainSet3 <- xgb.DMatrix(data=as.matrix(data.rf[data.rf$y>0, c(covar.names)]),label=data.rf[data.rf$y>0, c('y')])
-
-set.seed(1234)
-model.cnt <- xgb.train(params = params_cnt, data = TrainSet3, nrounds = params_cnt$nrounds)
-
-
-data.fit[data.fit$year <= 2022, 'score_cnt'] <- data.rf$score_cnt
-data.fit[data.fit$year > 2022 , 'score_cnt'] <- predict(model.cnt, as.matrix(data.fit[data.fit$year > 2022 ,c(covar.names)]))
-
-# 
-# 
-data.fit[is.na(data.fit$log_ba),'log_ba'] <- 0
-
-data.fit %>% group_by(year)%>% summarize(AUC=as.numeric(auc(z,score_z,quiet=TRUE)))
-
-data.fit[data.fit$y>0,]%>%mutate(square_loss=(log_ba-score_ba)^2,sum_loss=sum(square_loss))%>%
-  group_by(year)%>% summarize(avg_loss=mean(square_loss))
-
-
-poisson_loss <- function(y,lambda){
-  return(mean(-y*log(lambda)+lambda))
-}
-
-
-data.fit[data.fit$y>0,]%>%group_by(year)%>% summarize(avg_loss=poisson_loss(y,score_cnt))
 
 
 
@@ -233,7 +53,7 @@ conc=conc[conc$NAME_1!="Azores",]
 conc=conc[conc$NAME_1!="Madeira",]
 conc$NAME_1<-as.factor(droplevels(conc$NAME_1))
 conc$NAME_2<-as.factor(droplevels(conc$NAME_2))
-sf_conc <- st_as_sf(conc[conc$NAME_1=='Viseu',])
+sf_conc <- st_as_sf(conc[conc$NAME_1==district,])
 
 map <- sf_conc[,'NAME_2']
 rownames(map) <- sf_conc$NAME_2
@@ -259,183 +79,236 @@ data.fit <- data.fit |> subset(select=-grid.idx) |>
 
 
 
-
-data.fit.reshape <- reshape(data.fit[,c('grid.idx','time.idx','y')],
-                            timevar = "time.idx",
-                            idvar = "grid.idx",
-                            direction = "wide"
-)
-
 data.fit$month <- (data.fit$time.idx-1)%%12 + 1
 data.fit$year <- (data.fit$time.idx-1)%/%12 + 2011
 
 
-# B2.merge <- merge(B1, data.fit.reshape, by = "grid.idx")
-# save(B2.merge, file=file.path(dir.out, 'grid_cell_map_0.1.RData'))
-# 
+n.group <- 5
 
 
+data.fit$z <- as.vector((data.fit$y>0)+0)
+
+log.ba.agg <- data.fit[data.fit$year<=2022,] %>% group_by(NAME_2) %>%
+  summarise(cum_log_ba=sum(log_ba,na.rm=TRUE)) %>%
+  mutate(log.ba.idx=inla.group(cum_log_ba,n=n.group,method='quantile',idx.only=T))
+
+cnt.agg <- data.fit[data.fit$year<=2022,] %>% group_by(NAME_2) %>%
+  summarise(cum_cnt=sum(y,na.rm=TRUE)) %>%
+  mutate(cnt.idx=inla.group(cum_cnt,n=n.group,method='quantile',idx.only=T))
+
+z.agg <- data.fit[data.fit$year<=2022,] %>% group_by(NAME_2) %>%
+  summarise(cum_z=sum(z,na.rm=TRUE)) %>%
+  mutate(z.idx=inla.group(cum_z,n=n.group,method='quantile',idx.only=T))
+
+
+data.fit <- merge(data.fit,log.ba.agg[,c("NAME_2",'log.ba.idx')],by='NAME_2')
+data.fit <- merge(data.fit, cnt.agg[,c('NAME_2','cnt.idx')], by='NAME_2')
+data.fit <- merge(data.fit, z.agg[,c('NAME_2','z.idx')], by='NAME_2')
+
+
+
+data.fit <- data.fit[order(data.fit$time.idx,data.fit$grid.idx),]
 
 z <- as.vector((data.fit$y>0)+0)
 log.ba <- as.vector(ifelse(data.fit$y>0, data.fit$log_ba, NA))
-# cnt = as.vector(data.fit$y)
 cnt <- as.vector(ifelse(data.fit$y>0, data.fit$y, NA))
-#
+
 
 #prepare for prediction
 z[which(data.fit$year>2022)] <- NA
 log.ba[which(data.fit$year>2022)] <- NA
 cnt[which(data.fit$year>2022)] <- NA
 
+n1 <- dim(data.fit)[1]
+nothing <- rep(NA, n1)
 
-knots_cnt <- quantile(data.fit[data.fit$y>0,'score_cnt'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
-mesh_score_1 <- inla.mesh.1d(knots_cnt, boundary=c('free','free'))
-A1 <- inla.spde.make.A(mesh_score_1, loc=data.fit$score_cnt)
-spde_score_1 <-  inla.spde2.pcmatern(mesh_score_1,
-                                     prior.range = c(1, 0.1),
-                                     prior.sigma = c(1, 0.05))
+cntNA <- as.vector(c(cnt,nothing,nothing))
+zNA <- as.vector(c(nothing, z, nothing))
+baNA.log = as.vector(c(nothing, nothing, log.ba))
 
+Y.log <- matrix(c(cntNA,zNA, baNA.log), ncol=3)
 
-spde_score_1.idx <- inla.spde.make.index("score_1", n.spde = spde_score_1$n.spde)
-
-knots_z <- quantile(data.fit[,'score_z'],c(0.05,seq(0.1,0.9,0.1),0.95))
-mesh_score_2 <- inla.mesh.1d(knots_z,boundary=c('free','free'))
-
-A2 <- inla.spde.make.A(mesh_score_2, loc=data.fit$score_z)
-spde_score_2 <-  inla.spde2.pcmatern(mesh_score_2,
-                                     prior.range = c(0.1, 0.05),
-                                     prior.sigma = c(1, 0.05))
-spde_score_2.idx <- inla.spde.make.index("score_2", n.spde = spde_score_2$n.spde)
-
-knots_ba <- quantile(data.fit[data.fit$y>0,'score_ba'],c(0.05,0.2,0.35,0.5,0.65,0.8,0.95))
-mesh_score_3 <- inla.mesh.1d(knots_ba, boundary=c('free','free'))
-
-A3 <- inla.spde.make.A(mesh_score_3, loc=data.fit$score_ba)
-spde_score_3 <-  inla.spde2.pcmatern(mesh_score_3,
-                                     prior.range = c(10, 0.2),
-                                     prior.sigma = c(1, 0.1))
-spde_score_3.idx <- inla.spde.make.index("score_3", n.spde = spde_score_3$n.spde)
+grid.idx.cnt = c(data.fit$grid.idx, nothing, nothing)# fire ignition
+grid.idx.z = c(nothing,data.fit$grid.idx, nothing)# BA ind
+grid.idx.ba = c(nothing, nothing, data.fit$grid.idx)# BA
 
 
+time.idx.cnt <- c(data.fit$time.idx, nothing, nothing)# fire ignition
+time.idx.z <- c(nothing, data.fit$time.idx, nothing)# BA ind
+time.idx.ba  <-  c(nothing, nothing, data.fit$time.idx)# BA
+
+intercept.cnt <- c(rep(1,n1),nothing, nothing)
+intercept.z <- c(nothing, rep(1,n1), nothing)
+intercept.ba <- c(nothing, nothing, rep(1,n1))
 
 
-cnt.stack <- inla.stack(
-  data= list(Y.log=cbind(cnt,NA,NA)),
-  A <- list(1,1,A1, 1 , 1,1,1,1,1,1,1,1,1,1,1,1 ,1,1,1),
-  effect = list(Intercept1=rep(1,nrow(data.fit)), month.idx.cnt=data.fit$month, score_1=spde_score_1.idx,
-                grid.idx.cnt=data.fit$grid.idx, 
-                year.af.2017.cnt = as.integer(data.fit$year>2017),
-                month_2.cnt = data.fit$month_2, month_3.cnt = data.fit$month_3,
-                month_4.cnt = data.fit$month_4, month_5.cnt = data.fit$month_5,
-                month_6.cnt = data.fit$month_6, month_7.cnt = data.fit$month_7,
-                month_8.cnt = data.fit$month_8, month_9.cnt = data.fit$month_9,
-                month_10.cnt = data.fit$month_10, month_11.cnt = data.fit$month_11,
-                month_12.cnt = data.fit$month_12,
-                year.idx.cnt=data.fit$year-2010,
-                year.af.2017.cnt = as.numeric(data.fit$year>2017),
-                eps.cnt = data.fit$time.idx),
-  tag='cnt'
+rw.group <- function(x1,x2,n){
+  q.bins <- c(0, ppoints(n-1), 1)
+  q.bins.value <- lead((q.bins+ lag(q.bins))/2)[1:n]
+  bins <- unique(quantile(x1, probs = q.bins))
+  bins.value <-  unique(quantile(x1, probs = q.bins.value))
+  bins[1] <- min(bins[1], min(x2))
+  bins[length(bins)] <- max(bins[length(bins)], max(x2))
+  x2.bins <- cut(x2, breaks = bins, include.lowest = TRUE)
+  levels(x2.bins) <- bins.value
+  x2.bins <- as.numeric(as.character(x2.bins))
+  return(x2.bins)
+}
+
+
+score_cnt_grp <- rw.group(data.fit[data.fit$y>0,'score_cnt'],data.fit$score_cnt,40)
+score.cnt <- c(score_cnt_grp,nothing, nothing)
+
+score_z_grp <- rw.group(data.fit$score_z,data.fit$score_z,40)
+score.z <- c(nothing, score_z_grp, nothing)
+
+score_ba_grp <- rw.group(data.fit[data.fit$y>0,'score_ba'],data.fit$score_ba,40)
+score.ba <- c(nothing, nothing, score_ba_grp)
+
+month.idx.cnt <- c(data.fit$month, nothing, nothing)# fire ignition
+month.idx.z <- c(nothing, data.fit$month, nothing)# BA ind
+month.idx.ba  <-  c(nothing, nothing, data.fit$month)# BA
+
+year.idx <- data.fit$year - 2010
+year.idx.cnt <- c(year.idx, nothing, nothing)# fire ignition
+year.idx.z <- c(nothing, year.idx, nothing)# BA ind
+year.idx.ba  <-  c(nothing, nothing,year.idx)# BA
+
+after.2017 <- as.integer(data.fit$year>2017)
+year.af.2017.cnt <- c(after.2017, nothing, nothing)
+year.af.2017.z <- c(nothing, after.2017, nothing)
+year.af.2017.ba <- c(nothing, nothing,  after.2017)
+
+log.ba.idx <- c(nothing, nothing,  data.fit$log.ba.idx)
+cnt.idx <- c(data.fit$cnt.idx, nothing, nothing)
+z.idx <- c(nothing, data.fit$z.idx, nothing)
+
+
+data.list=list(Y.log=Y.log, 
+               
+               grid.idx.cnt=grid.idx.cnt, 
+               grid.idx.z=grid.idx.z, 
+               grid.idx.ba=grid.idx.ba,
+
+               time.idx.cnt = time.idx.cnt,
+               time.idx.z = time.idx.z,
+               time.idx.ba = time.idx.ba,
+               
+               time.idx.cnt1 = time.idx.cnt,
+               time.idx.z1 = time.idx.z,
+               time.idx.ba1 = time.idx.ba,
+               
+               intercept.cnt = intercept.cnt,
+               intercept.z = intercept.z,
+               intercept.ba = intercept.ba,
+               
+               month.idx.cnt = month.idx.cnt,
+               month.idx.z = month.idx.z,
+               month.idx.ba = month.idx.ba,
+               
+               year.idx.cnt = year.idx.cnt,
+               year.idx.z = year.idx.z,
+               year.idx.ba = year.idx.ba,
+               
+               year.af.2017.cnt = year.af.2017.cnt,
+               year.af.2017.z = year.af.2017.z,
+               year.af.2017.ba = year.af.2017.ba,
+               
+               log.ba.idx = log.ba.idx,
+               cnt.idx = cnt.idx,
+               z.idx = z.idx,
+               
+               score.cnt = score.cnt,
+               score.z = score.z,
+               score.ba = score.ba
+               
 )
 
-z.stack <- inla.stack(
-  data= list(Y.log=cbind(NA,z,NA)),
-  A <- list(1,1,A2, 1 , 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1),
-  effect = list(Intercept2=rep(1,nrow(data.fit)), month.idx.z=data.fit$month, score_2=spde_score_2.idx,
-                grid.idx.z=data.fit$grid.idx, 
-                year.af.2017.z = as.integer(data.fit$year>2017),
-                month_2.z = data.fit$month_2, month_3.z = data.fit$month_3,
-                month_4.z = data.fit$month_4, month_5.z = data.fit$month_5,
-                month_6.z = data.fit$month_6, month_7.z = data.fit$month_7,
-                month_8.z = data.fit$month_8, month_9.z = data.fit$month_9,
-                month_10.z = data.fit$month_10, month_11.z = data.fit$month_11,
-                month_12.z = data.fit$month_12,
-                year.idx.z=data.fit$year-2010,
-                year.af.2017.z = as.numeric(data.fit$year>2017),
-                eps.z = data.fit$time.idx),
-  tag='z'
-)
 
+formula <- Y.log ~  0  +
+  intercept.cnt + year.af.2017.cnt +
+  f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  +
+  f(score.cnt, model='rw1')+
+  f(time.idx.cnt, model='iid')+ 
+  f(year.idx.cnt, model='iid') + 
+  f(cnt.idx, model='rw1')+
+  
+  intercept.z + year.af.2017.z +
+  f(grid.idx.z, model='bym2',graph=g.council)  +
+  f(score.z, model='rw1' )+
+  f(time.idx.z, model='iid')+ 
+  f(year.idx.z, model='iid') + 
+  f(z.idx, model='rw1')+
+  
+  
+  intercept.ba + year.af.2017.ba +
+  f(grid.idx.ba, copy='grid.idx.z',fixed=F)  +
+  f(score.ba, model='rw1' ) +
+  f(time.idx.ba, model='iid') + 
+  f(year.idx.ba, model='iid') + 
+  f(log.ba.idx, model='rw1')
 
-ba.stack <- inla.stack(
-  data= list(Y.log=cbind(NA,NA,log.ba)),
-  A <- list(1,1, A3, 1 , 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1),
-  effect = list(Intercept3=rep(1,nrow(data.fit)), month.idx.ba=data.fit$month, score_3=spde_score_3.idx,
-                grid.idx.ba = data.fit$grid.idx,
-                year.af.2017.ba = as.integer(data.fit$year>2017),
-                month_2.ba = data.fit$month_2, month_3.ba = data.fit$month_3,
-                month_4.ba = data.fit$month_4, month_5.ba = data.fit$month_5,
-                month_6.ba = data.fit$month_6, month_7.ba = data.fit$month_7,
-                month_8.ba = data.fit$month_8, month_9.ba = data.fit$month_9,
-                month_10.ba = data.fit$month_10, month_11.ba = data.fit$month_11,
-                month_12.ba = data.fit$month_12,
-                year.idx.ba=data.fit$year-2010,
-                year.af.2017.z = as.numeric(data.fit$year>2017),
-                eps.ba = data.fit$time.idx),
-  tag='ba'
-)
+hyper.theta <-  list(prec = list(prior="loggamma",param=c(10,10)))
 
-
-all.stack <- inla.stack(cnt.stack, z.stack, ba.stack )
-
-
-
-
-formula <- Y.log ~  -1  +
-  Intercept1 + year.af.2017.cnt + f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  +
-  f(month.idx.cnt, model='seasonal', season.length=12 )+
-  f(year.idx.cnt, model='rw1')+ f(score_1, model=spde_score_1 )+
-  f(eps.cnt, model='iid') +
-
-
-  Intercept2 + year.af.2017.z + f(grid.idx.z, model='bym2',graph=g.council)  +
-  f(month.idx.z, model='seasonal',season.length=12 )+
-  f(year.idx.z, model='rw1')+  f(score_2, model=spde_score_2 )+
-  f(eps.z, model='iid') +
-
-  Intercept3 + year.af.2017.ba + f(grid.idx.ba, copy='grid.idx.z',fixed=F)  +
-  f(month.idx.ba, model='seasonal',season.length=12 ) +
-  f(year.idx.ba, model='rw1') +  f(score_3, model=spde_score_3 ) +
-  f(eps.ba, model='iid')
-
-# formula <- Y.log ~  -1  +
-#   Intercept1 + year.af.2017.cnt + f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  + 
-#   f(month.idx.cnt, model='ar1')+ 
-#   f(score_1, model=spde_score_1 )+ 
-#   f(eps.cnt, model='iid') + 
-#   
-#   
-#   Intercept2 + year.af.2017.z + f(grid.idx.z, model='bym2',graph=g.council)  + 
-#   f(month.idx.z, model='ar1' )+ 
-#   f(score_2, model=spde_score_2 )+  
-#   f(eps.z, model='iid') + 
-#   
-#   Intercept3 + year.af.2017.ba + f(grid.idx.ba, copy='grid.idx.z',fixed=F)  + 
-#   f(month.idx.ba, model='ar1' ) + 
-#   f(score_3, model=spde_score_3 ) +
-#   f(eps.ba, model='iid')
-
+formula.egp <- Y.log ~  0  +
+  intercept.cnt + year.af.2017.cnt +
+  f(grid.idx.cnt, copy='grid.idx.z',fixed=F)  +
+  f(score.cnt, model='rw1')+
+  f(time.idx.cnt, model='iid')+ 
+  
+  intercept.z + year.af.2017.z +
+  f(grid.idx.z, model='bym2',graph=g.council)  +
+  f(score.z, model='rw1' )+
+  f(time.idx.z, model='iid')+ 
+  
+  
+  intercept.ba + year.af.2017.ba +
+  f(grid.idx.ba, copy='grid.idx.z',fixed=F)  +
+  f(score.ba, model='rw1' ) +
+  f(time.idx.ba, model='iid')
 
 
 n1 <- dim(data.fit)[1]
 
 res <- inla(formula,
-            family = c('poisson','binomial', 'weibull'), data = inla.stack.data(all.stack),  Ntrials=1,
-            control.predictor = list(A = inla.stack.A(all.stack), compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+            family = c('poisson','binomial', 'weibull'), data = data.list,  Ntrials=1,
+            control.predictor = list( compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
             verbose=TRUE,
             control.compute=list(config = TRUE),
             control.family = list( list(), list(), list()),
             control.fixed = list(expand.factor.strategy = 'inla')
 )
 
+# 
+# res <- inla(formula.egp,
+#             family = c('poisson','binomial', 'egp'), data = data.list,  Ntrials=1,
+#             control.predictor = list( compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+#             verbose=TRUE,
+#             control.compute=list(config = TRUE),
+#             control.family = list( list(), list(), list(control.link = list(quantile = 0.6),
+#                                                         hyper = list(
+#                                                           tail = list(
+#                                                             ##initial = xi.intern,
+#                                                             fixed = !TRUE,
+#                                                             prior = "pc.egptail",
+#                                                             param = c(5, -0.5, 0.5)),
+#                                                           shape = list(
+#                                                             ##initial = kappa.intern,
+#                                                             fixed = !TRUE,
+#                                                             prior = "loggamma",
+#                                                             param = c(40, 20)
+#                                                           )
+#                                                         )
+#             )),
+#             control.fixed = list(expand.factor.strategy = 'inla')
+# )
 
 summary(res)
 
 
-result <- res
-print(summary(result))
 
-n.samples <- 200
-samples = inla.posterior.sample(n.samples, result = result, seed=1234)
+n.samples <- 2000
+samples = inla.posterior.sample(n.samples, result = res, seed=1234)
 
 
 
@@ -501,6 +374,79 @@ post.pred.weibull.hurdle.parallel <- function(samples, idx.pred.pois, idx.pred.z
 }
 
 
+post.pred.egp.hurdle.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba,n.samples=200 ){
+  t1 <- Sys.time()
+  # res <- foreach(j = 1:length(idx.pred.pois) ) %dopar%{
+  pred.cnt.mat <- c()
+  pred.z.mat <- c()
+  pred.ba.mat <- c()
+  param.cnt <- list()
+  param.z <- list()
+  param.ba <- list()
+  hyper.xi <- list()
+  hyper.kappa <- list()
+  
+  regp <- function(n, eta, kappa, xi,alpha=0.5){
+    a <- ((1-alpha^(1/kappa))^(-xi) -1)
+    # x <- rnorm(n, sd = 0.3)
+    # eta <- 0.9 + 1.1 * x
+    q <- exp(eta)
+    sigma <- xi * q / a
+    y <- - (sigma / xi) * (1- (1-runif(n)^(1/kappa))^(-xi))
+    return(y)
+  }
+  
+  
+  for (i in 1:n.samples){
+    eta.pois <- samples[[i]]$latent[idx.pred.pois,1]
+    lambda.pois <- exp(eta.pois)
+    
+    
+    eta.z <- samples[[i]]$latent[idx.pred.z,1]
+    p <- exp(eta.z)/(1 + exp(eta.z))
+    
+    
+    eta.ba <- samples[[i]]$latent[idx.pred.ba,1]
+    # xi <- samples[[i]]$hyperpar[1]
+    xi <- -0.465
+    kappa <- samples[[i]]$hyperpar[2]
+    
+    pred.z <- rbinom(length(idx.pred.pois), size=1, prob=p)
+    pred.cnt <- rpois(length(idx.pred.z), lambda.pois )
+    pred.ba <- regp(length(idx.pred.ba), eta = eta.ba, kappa=kappa, xi=xi)
+    
+    zero.idx <- which(pred.z==0)
+    pred.cnt[zero.idx] <- 0
+    pred.ba[zero.idx] <- 0
+    
+    
+    pred.cnt.mat <- cbind(pred.cnt.mat, pred.cnt)
+    pred.z.mat <- cbind(pred.z.mat, pred.z)
+    pred.ba.mat <- cbind(pred.ba.mat, pred.ba)
+    
+    param.cnt[[i]] <- lambda.pois
+    param.z[[i]] <- p
+    param.ba[[i]] <- eta.ba
+    hyper.xi[[i]] <- xi
+    hyper.kappa[[i]] <- kappa
+  }
+  
+  
+  t2 <- Sys.time()
+  print(t2-t1)
+  pred.cnt <- list()
+  pred.z <- list()
+  pred.ba <- list()
+  for (i in 1:length(idx.pred.pois)){
+    pred.cnt[[i]] <- as.numeric(pred.cnt.mat[i,])
+    pred.z[[i]] <- as.numeric(pred.z.mat[i,])
+    pred.ba[[i]] <- as.numeric(pred.ba.mat[i,])
+  }
+  
+  return(list('pred.ba'=pred.ba, 'pred.cnt'=pred.cnt, 'pred.z'=pred.z,
+              'param.cnt'=param.cnt, 'param.z'=param.z, 'param.ba'=param.ba, 'hyper.xi'=hyper.xi,
+              'hyper.kappa'=hyper.kappa ))
+}
 
 
 
@@ -545,9 +491,52 @@ data.fit[,'Upper_BA'] <- sapply(pred.ba,quantile,0.975)
 
 
 
+crps.ba <- rep(NA, n1)
+for (i in 1:n1 ){
+  y <- data.fit$log_ba[i]
+  if (is.na(y)) y <- 0
+  crps.ba[i] <- crps_sample(
+    y,
+    pred.ba[[i]],
+    method = "edf")
+}
+round(sum(crps.ba)/length(crps.ba),4)
+
+df.crps.ba <- data.frame(crps=crps.ba,year=data.fit$year,district=data.fit$NAME_1)
+df.crps.ba$label <- 'Train'
+df.crps.ba[which(df.crps.ba$year>2022),'label'] <- 'Test'
+df.crps.ba$label <- factor(df.crps.ba$label, level=c('Train','Test'))
+
+print(df.crps.ba %>% group_by(district,label) %>% summarize(avg_crps_ba=mean(crps)),n=50)
+print(df.crps.ba %>% group_by(label) %>% summarize(avg_crps_ba=mean(crps)),n=50)
+
+
+# 
+# 
+crps.cnt <- rep(NA, n1)
+for (i in 1:n1 ){
+  y <- data.fit$y[i]
+  if (is.na(y)) y <- 0
+  crps.cnt[i] <- crps_sample(
+    y,
+    pred.ba[[i]],
+    method = "edf")
+}
+
+df.crps.cnt <- data.frame(crps=crps.cnt,year=data.fit$year,district=data.fit$NAME_1)
+df.crps.cnt$label <- 'Train'
+df.crps.cnt[which(df.crps.cnt$year<=2022),'label'] <- 'Test'
+df.crps.cnt$label <- factor(df.crps.cnt$label, level=c('Train','Test'))
+
+print(df.crps.cnt %>% group_by(district,label) %>% summarize(avg_crps_cnt=mean(crps)),n=50)
+print(df.crps.cnt %>% group_by(label) %>% summarize(avg_crps_cnt=mean(crps)),n=50)
+
+
+
+
 merged_sf1 <- st_as_sf(data.fit, coords = c("lon.grid", "lat.grid"), crs = 4326)
 
-dist.name <-  'Viseu'
+dist.name <-  district
 joint.post.sp <- function(x) Reduce("+", x)
 df.dist <- data.frame(time.idx=rep(1:156, each=length(pred.cnt[[1]])))
 df.dist$year_label <- rep(2011:2023,each=length(pred.cnt[[1]])*12)
@@ -573,7 +562,7 @@ for (t in 1:156){
 }
 
 ggplot(df.dist, aes(x = factor(time_label), y = sample_cnt)) +
-  geom_boxplot() + 
+  geom_boxplot(outlier.shape=NA) + 
   geom_line(data=df.boxplot.true, aes(x=factor(time_label),y=cnt,group = 1), col='red',linewidth=1)+
   labs(x = "Time", y = "fire count", title = paste("Predictive Total Fire Count in", dist.name, sep=' ')) +
   theme_minimal() +
@@ -582,7 +571,7 @@ ggplot(df.dist, aes(x = factor(time_label), y = sample_cnt)) +
 
 
 ggplot(df.dist, aes(x = factor(time_label), y = sample_ba)) +
-  geom_boxplot() + 
+  geom_boxplot(outlier.shape=NA) + 
   geom_line(data=df.boxplot.true, aes(x=factor(time_label),y=log.ba,group = 1), col='red',linewidth=1)+
   labs(x = "Time", y = "log burn area", title = paste("Predictive Total Burn Area in", dist.name, sep=' ')) +
   theme_minimal() +
