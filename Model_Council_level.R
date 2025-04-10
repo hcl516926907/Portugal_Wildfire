@@ -97,7 +97,7 @@ ggplot(map.district) + geom_sf()+
 nb2INLA("map.district.adj", nb.district)
 g.district <- inla.read.graph(filename = "map.district.adj")
 
-
+save(map, map.district,  file=file.path(dir.out, 'map_council_district.RData'))
 
 data.fit.reshape <- reshape(data.fit[,c('grid.idx','time.idx','y')],
                             timevar = "time.idx",
