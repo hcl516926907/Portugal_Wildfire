@@ -307,24 +307,7 @@ df<-bind_rows(dfs)
 rownames(df)<-NULL
 df
 
-# tif_sf <- st_as_sf(df, coords = c("lon", "lat"), crs = 4326)
-# tif_sf$new_dist_error=paste0("  ",rownames(tif_sf),".",tif_sf$dist_error)
-# 
-# tmap_options(check.and.fix = TRUE)
-# tm_shape(map) + 
-#   tm_borders() +
-#   tm_text("NAME_1",size = 0.5, fontfamily="sans", ymod = 0.4)+
-#   tm_shape(tif_sf) + tm_dots(size=0.05,shape=4,col="red") +
-#   tm_text("new_dist_error",size = 0.4,col="red",just="left") 
 
-
-# for (i in 2:length(dfs)) {
-#   print(i)
-#   df=dfs[[i]]
-#   spdf <- SpatialPointsDataFrame(coords = df[,c("lon", "lat")], data = df, proj4string = CRS("+proj=longlat +datum=WGS84 +no_defs"))
-#   newloc<-as.character(dist$NAME_1[over(spdf, as(dist, "SpatialPolygons"))])
-#   data[data$lon %in% df$lon & data$lat %in% df$lat & data$district %in% df$dist_error,"district"]<-newloc
-# }
 spdf <- SpatialPointsDataFrame(coords = data[,c("lon", "lat")], data = data, proj4string = CRS("+proj=longlat +datum=WGS84 +no_defs"))
 data$district <- as.character(dist$NAME_1[over(spdf, as(dist, "SpatialPolygons"))])
 clistoutd<-list()
@@ -404,23 +387,6 @@ summary(confront(data, rules))[,-c(6:8)]
 
 n8=dim(data);n8
 
-# 
-# size=as.data.frame(rbind(n1,n2,n3,n4,n5,n6,n7,n8))
-# 
-# for (i in 2:nrow(size)) {
-#   size$dif.cases[1]=size$V1[1]-size$V1[1]
-#   size$dif.cases[i]=size$V1[i-1]-size$V1[i]
-# }
-# 
-# for (i in 2:nrow(size)) {
-#   size$dif.vars[1]=size$V2[1]-size$V2[1]
-#   size$dif.vars[i]=size$V2[i-1]-size$V2[i]
-# }
-# 
-# rownames(size)=c("Start","Removal of variables","Negative length","Portuguese borders","District labels correction","Municipality labels correction","Parish labels correction","Final")
-# colnames(size)=c("n","p","delta.n","delta.p")
-# 
-# size
 
 str(data)
 summary(data)

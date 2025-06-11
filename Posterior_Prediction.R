@@ -26,13 +26,23 @@ load(file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
 result <- res
 print(summary(result))
 
+
+
+####################################################################
+# Generate posterior samples of effects and hyperparameters
+####################################################################
+
 n.samples <- 1000
 samples = inla.posterior.sample(n.samples, result = result, seed=1234)
 apply(sapply(samples, function(x) x$hyperpar),1,summary)
 
-# n1 <- 144300
-# n1 <- 43368
+
 n1 <- nrow(data.fit)
+
+####################################################################
+# Define the sample function of posterior predictive distribution on
+# three eGP, Gamma and Weibull likelhoods
+####################################################################
 
 # weillbull  
 post.pred.weibull.hurdle.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba,n.samples=200 ){
@@ -250,7 +260,9 @@ idx.pred.z <- (n1+1):(2*n1)
 idx.pred.ba <- (2*n1+1):(3*n1)
  
 
-
+####################################################################
+# Sample and save results
+####################################################################
 
 t1 <- Sys.time()
 # pred.sp <- post.pred.egp.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
@@ -260,12 +272,6 @@ pred.sp <- post.pred.gamma.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, i
 t2 <- Sys.time()
 print(t2-t1)
 
-
-
-
-# save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred.RData'))
-# save(pred.sp, file=file.path(dir.out,'Model_weibull_bym2_pred.RData'))
-# save(pred.sp, file=file.path(dir.out,'Model_gamma_bym2_pred.RData'))
 
 save(pred.sp, file=file.path(dir.out,'Model_gamma_bym2_pred_h1.RData'))
 # save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred_h1.RData'))

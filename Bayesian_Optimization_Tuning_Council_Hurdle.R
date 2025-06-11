@@ -24,7 +24,9 @@ data.fit$xgb_cnt <- data.fit$y
 data.fit$xgb_ba <- sqrt(data.fit$ba)
 data.fit$xgb_z <- as.vector(data.fit$y>0) + 0
 
-
+####################################################################
+#Create autoregressive covariates 
+####################################################################
 w <- 9
 h <- 1
 
@@ -69,14 +71,14 @@ dist.stat <- ungroup(dist.stat)
 
 
 
-######################################## month ######################
+#################### angular representation of month ######################
 df <- df %>%
   mutate(
     month_sin = sin(2 * pi * month / 12),
     month_cos = cos(2 * pi * month / 12)
   )
 
-##################################### council level moving average #########################
+#################### council level moving average #########################
 
 df <- df %>% arrange(NAME_2, time.idx) %>%
   group_by(NAME_2) %>%
@@ -107,7 +109,7 @@ df <- df %>% arrange(NAME_2, time.idx) %>%
 
 # df[,c('NAME_2','time.idx', 'xgb_cnt','cnt_ma_3','cnt_ma_6')]
 
-##################################### district level moving average #########################
+###################### district level moving average #########################
 dist.stat <- dist.stat %>% arrange(NAME_1, time.idx) %>%
   group_by(NAME_1) %>%
   mutate(
@@ -135,7 +137,7 @@ dist.stat <- dist.stat %>% arrange(NAME_1, time.idx) %>%
   ungroup()
 # dist.stat[,c('NAME_1','time.idx', 'dist_xgb_cnt','dist_cnt_lag1','dist_cnt_ma_3','dist_cnt_ma_6')]
 
-##################################### council level historical information 1 #########################
+#################### council level historical information 1 #########################
 # Only values with a positive index are used.
 df <- df %>% arrange(NAME_2, time.idx) %>%
   group_by(NAME_2) %>%
@@ -167,9 +169,8 @@ df <- df %>% arrange(NAME_2, time.idx) %>%
   })) %>%
   ungroup()
 
-# as.data.frame(df[,c('NAME_2','time.idx','year','month',  'xgb_cnt', "hist_cnt_h1_1m")])
 
-##################################### council level historical information 1 #########################
+###################### district level historical information 1 ####################
 dist.stat <- dist.stat %>% arrange(NAME_1, time.idx) %>%
   group_by(NAME_1) %>%
   mutate(dist_hist_ba_h1_1m = sapply(time.idx, function(t) {
@@ -200,12 +201,7 @@ dist.stat <- dist.stat %>% arrange(NAME_1, time.idx) %>%
   })) %>%
   ungroup()
 
-# as.data.frame(dist.stat[,c('NAME_1','time.idx', 'dist_xgb_cnt', "dist_hist_ba_h1_1m")])
-
-
-
-##################################### council level historical information 2 #########################
-
+#################### council level historical information 2 #########################
 
 ### 4. Create Historical Average 2
 # For each time.idx, compute the mean over indices: 
@@ -247,9 +243,6 @@ df <- df %>% arrange(NAME_2, time.idx) %>%
     mean(valid_vals, na.rm = TRUE)
   })) %>%
   ungroup()
-# as.data.frame(df[,c('NAME_2','time.idx','year','month',  'xgb_cnt', "hist_cnt_h1_3m")])
-
-
 
 
 ##################################### district level historical information 2 #########################
@@ -295,7 +288,7 @@ dist.stat <- dist.stat %>% arrange(NAME_1, time.idx) %>%
 
 
 
-##################################### council level historical information 3 #########################
+###################### council level historical information 3 #########################
 
 
 ### 5. Create Historical Average 3
@@ -340,7 +333,7 @@ df <- df %>% arrange(NAME_2, time.idx) %>%
   })) %>%
   ungroup()
 
-##################################### district level historical information 3 #########################
+###################### district level historical information 3 #########################
 
 dist.stat <- dist.stat %>% arrange(NAME_1, time.idx) %>%
   group_by(NAME_1) %>%
@@ -390,9 +383,6 @@ df <- merge(df, dist.stat, by=c('NAME_1','time.idx'))
 
 df <- df %>% arrange(NAME_2, time.idx)
 
-# as.data.frame(df[,c( 'NAME_1','NAME_2','time.idx','year','month',  'xgb_cnt', "hist_cnt_h1_5m",'dist_cnt_lag1')])
-# df[df$NAME_1=='Santarém' & df$time.idx==1,c( 'NAME_1','NAME_2','time.idx','year','month',  'xgb_cnt', "hist_cnt_h1_5m",'dist_cnt_lag1')]
-
 
 df$NAME_1 <- as.character(df$NAME_1)
 
@@ -423,7 +413,6 @@ ba.covar.names.h1 <- c(
                   'LVegTyp_1','LVegTyp_7','LVegTyp_11','LVegTyp_16',
                   'month_sin','month_cos'
 )
-# df[,ba.covar.names.h1]
 
 cnt.covar.names.h1 <- c( 
                      paste('cnt_lag',0:(w-1),sep=''),
@@ -442,11 +431,15 @@ cnt.covar.names.h1 <- c(
                      'LVegTyp_1','LVegTyp_7','LVegTyp_11','LVegTyp_16',
                      'month_sin','month_cos'
 )
-# df[,cnt.covar.names.h1]
+
 
 combined.covar.names.h1 <- unique(c(cnt.covar.names.h1, ba.covar.names.h1))
 
 
+
+####################################################################
+# ACF plots
+####################################################################
 
 data.fit.train <- df[(df$year <= 2022) & (!rowSums(is.na(df[,combined.covar.names.h1])) > 0 ),]
 
@@ -454,8 +447,6 @@ data.fit.test <- df[df$year > 2022,]
 
 acf(data.fit.train$xgb_ba,lag.max=120)
 acf(data.fit.train$xgb_cnt,lag.max=120)
-
-
 
 overall_ts <- data.fit.train %>%
   group_by(time.idx) %>%
@@ -545,8 +536,10 @@ data.fit.test.positive <- data.fit.test[data.fit.test$y>0,]
 
 
 
-# Assuming your dataset 'df.train' is already available in the environment
 
+####################################################################
+# Tune hyperparameters of XGBoost using Bayesian optimization
+####################################################################
 
 
 XGBoostAR <- function(data, covar.names, target.name, eta,max_depth, objective, evaluation_metric,nfold=10){
@@ -719,41 +712,7 @@ xgb_predict_cv <- function(data_train,
 
 
 
-
-
-
-
-
-################################ hurdle structure############################
-
-res_z_h1 = XGBoostAR(as.data.frame(data.fit.train),combined.covar.names.h1 , 
-                     'xgb_z_h1', eta=0.1, objective='binary:logistic', evaluation_metric='auc')
-
-save(res_z_h1,
-     file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_h1.RData'))
-
-res_ba_h1 =  XGBoostAR(as.data.frame(data.fit.train.positive), ba.covar.names.h1 , 
-                       'xgb_ba_h1', eta=0.1, objective='reg:squarederror', evaluation_metric='rmse')
-save(res_z_h1,res_ba_h1,
-     file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_h1.RData'))
-
-res_cnt_h1 =  XGBoostAR(as.data.frame(data.fit.train.positive), cnt.covar.names.h1 , 
-                       'xgb_cnt_h1', eta=0.1, objective="count:poisson", evaluation_metric="poisson-nloglik")
-
-save(res_z_h1, res_ba_h1, res_cnt_h1, 
-     file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_h1.RData'))
-
-load(file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_h1.RData'))
-# load(file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_BA.RData'))
-
-data.fit.train$pred_z_h1 <- xgb_predict_cv(data.fit.train, data.fit.train, res_z_h1, 'xgb_z_h1',combined.covar.names.h1 )
-data.fit.train$pred_cnt_h1 <- xgb_predict_cv(data.fit.train[data.fit.train$y>0,], data.fit.train, res_cnt_h1, 'xgb_cnt_h1',cnt.covar.names.h1 )
-data.fit.train$pred_ba_h1 <-xgb_predict_cv(data.fit.train[data.fit.train$y>0,], data.fit.train, res_ba_h1, 'xgb_ba_h1',ba.covar.names.h1 )
-
-
-library(pROC)
-auc(data.fit.train$xgb_z_h1, data.fit.train$pred_z_h1, quiet = TRUE)
-################################ autoregressive ############################
+######################Fit the model############################
 
 res_ba_h1 = XGBoostAR(as.data.frame(data.fit.train),ba.covar.names.h1 , 
                      'xgb_ba_h1', eta=0.1, max_depth=c(2L,3L), objective='reg:tweedie', evaluation_metric='tweedie-nloglik@1.5')
@@ -788,8 +747,10 @@ council = 'Alcanena'
 plot(1:(dim(data[data$NAME_2==council,])[1]), data[data$NAME_2==council, ]$xgb_ba_h1,type='l')
 points(data[data$NAME_2==council, ]$pred_ba_h1,col='red')
 
-# Train the final XGBoost model using the tuned hyperparameters and best number of rounds.
 
+
+
+# Train the final XGBoost model using the tuned hyperparameters and best number of rounds.
 
 final_model <- function(data, covar.names, target.name, tuning_res){
   set.seed(42)
@@ -805,32 +766,18 @@ final_model <- function(data, covar.names, target.name, tuning_res){
   return(model)
 }
 
-# Optionally, inspect your final model or its performance.
 
-
-# 
-# model_z_h1 <- final_model(as.data.frame(data.fit.train), combined.covar.names.h1, 'xgb_z_h1',res_z_h1)
-# model_cnt_h1 <- final_model(as.data.frame(data.fit.train[data.fit.train$y>0,]), cnt.covar.names.h1, 'xgb_cnt_h1',res_cnt_h1)
-# model_ba_h1 <- final_model(as.data.frame(data.fit.train[data.fit.train$y>0,]), ba.covar.names.h1, 'xgb_ba_h1', res_ba_h1)
-# 
 
 model_cnt_h1 <- final_model(as.data.frame(data.fit.train), cnt.covar.names.h1, 'xgb_cnt_h1',res_cnt_h1)
 model_ba_h1 <- final_model(as.data.frame(data.fit.train), ba.covar.names.h1, 'xgb_ba_h1', res_ba_h1)
 
 
-# print(xgb.importance(model = model_z_h1))
+
 
 print(xgb.importance(model = model_cnt_h1))
 
 print(xgb.importance(model = model_ba_h1))
 
-
-# data.fit.test$pred_z_h1 <- predict(model_z_h1, newdata = as.matrix(data.fit.test[,combined.covar.names.h1]))
-# data.fit.test$pred_ba_h1 <- predict(model_ba_h1, newdata = as.matrix(data.fit.test[,ba.covar.names.h1]))
-# data.fit.test$pred_cnt_h1 <- predict(model_cnt_h1, newdata = as.matrix(data.fit.test[,cnt.covar.names.h1]))
-# auc(data.fit.train$xgb_z_h1, data.fit.train$pred_z_h1, quiet = TRUE)
-# auc(data.fit.test$xgb_z_h1, data.fit.test$pred_z_h1, quiet = TRUE)
-# 
 
 
 data.fit.test$pred_ba_h1 <- predict(model_ba_h1, newdata = as.matrix(data.fit.test[,ba.covar.names.h1]))
@@ -838,19 +785,10 @@ data.fit.test$pred_cnt_h1 <- predict(model_cnt_h1, newdata = as.matrix(data.fit.
 
 
 
-# 
-# auc(data.fit.train$xgb_z_h1, predict(model_z_h1, newdata = as.matrix(data.fit.train[,combined.covar.names.h1])), quiet = TRUE)
-# 
-# 
-# test_score <- xgb_predict_cv(data.fit.train, df, res_z_h1, 'xgb_z_h1',combined.covar.names.h1 )
-# 
-# 
-# auc(df[df$year<=2022,'xgb_z_h1'],test_score[df$year<=2022], quiet = TRUE)
-# auc(df[df$year>2022,'xgb_z_h1'],test_score[df$year>2022], quiet = TRUE)
-# 
-# plot(1:(dim(data.fit.test[data.fit.test$NAME_2==council,])[1]), data.fit.test[data.fit.test$NAME_2==council, ]$xgb_cnt,type='l')
-# lines(data.fit.test[data.fit.test$NAME_2==council, ]$pred_cnt_h1,col='red')
-# 
+####################################################################
+# Prepare the dataset for INLA modelling
+####################################################################
+
 
 
 data.fit <- rbind(data.fit.train, data.fit.test)
@@ -867,15 +805,6 @@ data.fit <- data.fit %>%
   group_by(NAME_2) %>%               # Apply the lag per location
     mutate(!!paste0("score_ba_h", 1) := lag(pred_ba_h1, n = 1),
            !!paste0("score_cnt_h",1) := lag(pred_cnt_h1, n = 1)) %>% ungroup() |> as.data.frame()
-
-# data.fit <- data.fit %>%
-#   arrange(NAME_2, time.idx) %>%   # Ensure data is ordered by location and time
-#   group_by(NAME_2) %>%               # Apply the lag per location
-#     mutate(!!paste0("score_ba_h", 1) := lag(pred_ba_h1, n = 1),
-#            !!paste0("score_cnt_h",1) := lag(pred_cnt_h1, n = 1),
-#            !!paste0("score_z_h",1) := lag(pred_z_h1, n = 1)) %>% ungroup() |> as.data.frame()
-
-# data.fit[data.fit$NAME_2==council,c('time.idx','NAME_2','xgb_z','xgb_z_h1','pred_z_h1','score_z_h1')]
 
 
 

@@ -8,19 +8,15 @@ inla.setOption(scale.model.default = TRUE)
 
 library(mgcv)
 library(ggplot2)
-# library(rgdal)
-# library(fmesher)
 library(dplyr)
 library(RColorBrewer)
-# library(terra)
-# library(rgeos)
 library(spdep)
-# library(raster)
-# library(scoringRules)
-# library(fastDummies)
-# bru_safe_sp(force = TRUE)
 library(sf)
 library(units)
+
+####################################################################
+# Load data with XGBoost predictions
+####################################################################
 
 load(file.path(dir.out, 'AutoRegressive_XGBoost_Predictions.RData'))
 
@@ -63,6 +59,10 @@ conc$NAME_1<-as.factor(droplevels(conc$NAME_1))
 conc$NAME_2<-as.factor(droplevels(conc$NAME_2))
 sf_conc <- st_make_valid(conc)
 
+
+####################################################################
+# Create adjacency map for spatial modelling
+####################################################################
 map <- sf_conc[,'NAME_2']
 rownames(map) <- sf_conc$NAME_2
 
@@ -111,6 +111,12 @@ data.fit <- merge(data.fit, as.data.frame(st_drop_geometry(map.district)[,c('NAM
 data.fit <- data.fit[order(data.fit$time.idx,data.fit$grid.idx),]
 
 save(data.fit, file=file.path(dir.out, 'dataset_perf_evaluate.RData'))
+
+
+####################################################################
+# Define the sample function of posterior predictive distribution on
+# three eGP, Gamma and Weibull likelhoods
+####################################################################
 
 z <- as.vector((data.fit$y>0)+0)
 ba <- as.vector(ifelse(data.fit$y>0, (data.fit$area_ha)^{1/2}, NA))
@@ -177,8 +183,6 @@ rw.group <- function(x1,x2,n){
 score_cnt_grp <- rw.group(data.fit[data.fit$y>0,'score_cnt_h1'], data.fit$score_cnt_h1,n.group)
 score.cnt <- c(score_cnt_grp,nothing, nothing)
 
-# score_z_grp <- rw.group(data.fit$score_z_h1, data.fit$score_z_h1, n.group)
-# score.z <- c(nothing, score_z_grp, nothing)
  
 score_z_grp_cnt <- rw.group(data.fit$score_cnt_h1, data.fit$score_cnt_h1, n.group)
 score.z_cnt <- c(nothing, score_z_grp_cnt, nothing)
@@ -238,7 +242,9 @@ data.list=list(Y=Y,
 
 
 
-
+####################################################################
+# Fitting INLA
+####################################################################
 prec.prior <-  list(prec = list(prior="loggamma",param=c(0.1,0.1)))
 
 
@@ -290,9 +296,6 @@ formula <- Y ~  0  +
 #   f(grid.idx.dist.ba, copy="grid.idx.dist.z",fixed=F, group=time.idx.ba, control.group = list(model='iid'))
 
 
-
-# save.image(file=file.path(dir.out, 'tmp.RData'))
-# load(file.path(dir.out,'tmp.RData'))
 # t1 <- Sys.time()
 res <- inla(formula,
                family = c('nzpoisson','binomial', 'gamma'), data = data.list,  Ntrials=1,
@@ -331,13 +334,9 @@ res <- inla(formula,
 
 summary(res)
 
-# save(res, file=file.path(dir.out, 'Model_egp_bym2.RData'))
-# save(res, file=file.path(dir.out, 'Model_weibull_bym2.RData'))
-# save(res, file=file.path(dir.out, 'Model_gamma_bym2.RData'))
-gc()
+
 n1 = nrow(data.fit)
 # save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
 save(n1, res, file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
 # save(n1, res, file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
 # save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1_noxgb.RData'))
-gc()

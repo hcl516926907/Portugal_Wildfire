@@ -15,26 +15,15 @@ library(RColorBrewer)
 library(scoringRules)
 library(ggridges)
 library(data.table)
-# bru_safe_sp(force = TRUE)
 
-
-
-# load(file.path(dir.data, "XGBoost_Score_Council_2.RData"))
-# load(file.path(dir.out, 'XGBoost_Score_Council_2.RData'))
-# data.fit <- data.fit.council
-# rm(data.fit.council)
 
 load(file.path(dir.out, 'dataset_perf_evaluate.RData'))
 
 
-
-# 
-# data.fit[data.fit$y==0,'log_ba'] <- 0
-# data.fit[data.fit$y==0,'area_ha'] <- 0
 data.fit$transformed_ba <- data.fit$area_ha^{1/2}
 
 
-############################################explorary analysis ##########33333333
+########################## explorary analysis #############################
 df_ba <- data.frame(x = data.fit[data.fit$year!=2023,'log_ba'])
 ggplot(df_ba, aes(x = x)) +
   geom_histogram(binwidth = 0.3, fill = "lightblue", color = "black") +
@@ -131,15 +120,9 @@ dev.off()
 
 
 
-
-
-
-
-
-
-# load(file=file.path(dir.out,'Model_gamma_bym2_pred.RData'))
-# load(file=file.path(dir.out,'Model_weibull_bym2_pred.RData'))
-# load(file=file.path(dir.out,'Model_egp_bym2_pred.RData'))
+####################################################################
+# Load posterior predictive samples 
+####################################################################
 
 # load(file=file.path(dir.out,'Model_gamma_bym2_pred_h1.RData'))
 load(file=file.path(dir.out,'Model_egp_bym2_pred_h1.RData'))
@@ -153,23 +136,17 @@ pred.z <- pred.sp$pred.z
 
 
 n1 <- nrow(data.fit)
-# n1 <- n.grid*12
-# pred.time <- c(97, 108)
-# subset.idx <- (1+(pred.time[1]-1)*n.grid) : (n.grid + (pred.time[2]-1)*n.grid )
 
-# n1 <- nrow(data.fit.pred)
 
 idx.pred.pois <- 1:n1
 idx.pred.z <- (n1+1):(2*n1)
 idx.pred.ba <- (2*n1+1):(3*n1)
 
-# idx.pred.cnt <- idx.pred.pois[subset.idx]
-# idx.pred.z <- idx.pred.z[subset.idx]
-# idx.pred.ba <- idx.pred.ba[subset.idx]
+
 district <- 'Viseu'
 district.idx <- data.fit$NAME_1==district
 
-
+################################# CRPS ######################################
 crps.ba <- rep(NA, nrow(data.fit))
 for (i in 1:nrow(data.fit) ){
   y <- data.fit$transformed_ba[i]
@@ -187,98 +164,9 @@ df.crps.ba$label <- 'Train'
 df.crps.ba[which(df.crps.ba$year>2022),'label'] <- 'Test'
 df.crps.ba$label <- factor(df.crps.ba$label, level=c('Train','Test'))
 
-# print(df.crps.ba %>% group_by(district,label) %>% summarize(avg_crps_ba=mean(crps)),n=50)
-# print(df.crps.ba %>%  group_by(label) %>% summarize(avg_crps_ba=mean(crps)),n=50)
+
 print(df.crps.ba %>% filter(transformed_ba>0)%>% group_by(label) %>% summarize(avg_crps_ba=mean(crps)),n=50)
 
-# crps.ba.org <- rep(NA, nrow(data.fit))
-# for (i in 1:nrow(data.fit) ){
-#   y <- data.fit$area_ha[i]
-#   if (is.na(y)) y <- 0
-#   crps.ba.org[i] <- crps_sample(
-#     y,
-#     pred.ba[[i]]^2,
-#     method = "edf")
-# }
-# round(sum(crps.ba.org)/length(crps.ba.org),4)
-# 
-# 
-# df.crps.ba.org <- data.frame(crps=crps.ba.org,year=data.fit$year,district=data.fit$NAME_1)
-# df.crps.ba.org$label <- 'Train'
-# df.crps.ba.org[which(df.crps.ba$year>2022),'label'] <- 'Test'
-# df.crps.ba.org$label <- factor(df.crps.ba$label, level=c('Train','Test'))
-# 
-# print(df.crps.ba.org %>% group_by(district,label) %>% summarize(avg_crps_ba_org=mean(crps)),n=50)
-# print(df.crps.ba.org %>% group_by(label) %>% summarize(avg_crps_ba_org=mean(crps)),n=50)
-
-# 
-# 
-# crps.t.ba <- rep(NA, nrow(data.fit))
-# for (i in 1:nrow(data.fit) ){
-#   y <- data.fit$y[i]
-#   if (is.na(y)) y <- 0
-#   if (y>log(50)){
-#     crps.t.ba[i] <- crps_sample(
-#       y,
-#       pred.ba[[i]],
-#       method = "edf")
-#   }
-# }
-# 
-# df.crps.t.ba <- data.frame(crps.t=crps.t.ba,year=data.fit$year,district=data.fit$NAME_1)
-# df.crps.t.ba$label <- 'Train'
-# df.crps.t.ba[which(df.crps.t.ba$year>2022),'label'] <- 'Test'
-# df.crps.t.ba$label <- factor(df.crps.t.ba$label, level=c('Train','Test'))
-# 
-# print(df.crps.t.ba %>% group_by(district,label) %>% summarize(avg_crps_t_ba=mean(crps.t,na.rm=T)),n=50)
-# print(df.crps.t.ba %>% group_by(label) %>% summarize(avg_crps_t_ba=mean(crps.t,na.rm=T)),n=50)
-
-
-
-
-#
-#
-# crps.cnt <- rep(NA, nrow(data.fit))
-# for (i in 1:nrow(data.fit) ){
-#   y <- data.fit$y[i]
-#   if (is.na(y)) y <- 0
-#   crps.cnt[i] <- crps_sample(
-#     y,
-#     pred.cnt[[i]],
-#     method = "edf")
-# }
-# 
-# df.crps.cnt <- data.frame(crps=crps.cnt,year=data.fit$year,district=data.fit$NAME_1)
-# df.crps.cnt$label <- 'Train'
-# df.crps.cnt[which(df.crps.cnt$year>2022),'label'] <- 'Test'
-# df.crps.cnt$label <- factor(df.crps.cnt$label, level=c('Train','Test'))
-# 
-# print(df.crps.cnt %>% group_by(district,label) %>% summarize(avg_crps_cnt=mean(crps)),n=50)
-# print(df.crps.cnt %>% group_by(label) %>% summarize(avg_crps_cnt=mean(crps)),n=50)
-
-# 
-# crps.t.cnt <- rep(NA, nrow(data.fit))
-# for (i in 1:nrow(data.fit) ){
-#   y <- data.fit$y[i]
-#   if (is.na(y)) y <- 0
-#   if (y>5){
-#     crps.t.cnt[i] <- crps_sample(
-#       y,
-#       pred.cnt[[i]],
-#       method = "edf")
-#   }
-# }
-# 
-# df.crps.t.cnt <- data.frame(crps.t=crps.t.cnt,year=data.fit$year,district=data.fit$NAME_1)
-# df.crps.t.cnt$label <- 'Train'
-# df.crps.t.cnt[which(df.crps.t.cnt$year>2022),'label'] <- 'Test'
-# df.crps.t.cnt$label <- factor(df.crps.t.cnt$label, level=c('Train','Test'))
-# 
-# print(df.crps.t.cnt %>% group_by(district,label) %>% summarize(avg_crps_t_cnt=mean(crps.t,na.rm=T)),n=50)
-# print(df.crps.t.cnt %>% group_by(label) %>% summarize(avg_crps_t_cnt=mean(crps.t,na.rm=T)),n=50)
-
-
- 
 
 
 data.fit[,'Estimated_Lambda'] <- sapply(pred.cnt,mean)
@@ -307,15 +195,14 @@ data.fit$label <- 'Train'
 data.fit[which(data.fit$year > 2022), 'label'] <- 'Test'
 data.fit$label <- factor(data.fit$label, levels = c('Train', 'Test'))
 
+
+################################## AUC ##############################
 library(pROC)
 auc(data.fit[data.fit$label=='Train',  'z'], data.fit[data.fit$label=='Train',  'Estimated_Z'], quiet = TRUE)
 auc(data.fit[data.fit$label=='Test',  'z'], data.fit[data.fit$label=='Test',  'Estimated_Z'], quiet = TRUE)
 
 
-# print(df.crps.t.cnt %>% group_by(district,label) %>% summarize(avg_crps_t_cnt=mean(crps.t,na.rm=T)),n=50)
-# print(df.crps.t.cnt %>% group_by(label) %>% summarize(avg_crps_t_cnt=mean(crps.t,na.rm=T)),n=50)
-
-
+############################### weighted score ########################
 weighted_loss <- function(y, preds, type) {
   if (type == 'CNT') {
     # thres.cnt <- c(0:15, 17, 19, 21, 23, 25, 30)
@@ -417,21 +304,8 @@ data.fit %>%
   group_by(label) %>% 
   summarize(loss_ba = sum(loss_ba_uw))
 
-# print(data.fit %>% group_by(label) %>% summarize(avg_res_cnt=mean((residual_cnt)^2)),n=50)
-# print(data.fit %>% group_by(NAME_1,label) %>% summarize(avg_res_cnt=mean((residual_cnt)^2)),n=50)
-# 
-# print(data.fit %>% group_by(label) %>% summarize(avg_res_ba=mean((residual_ba)^2)),n=50)
-# print(data.fit %>% group_by(NAME_1, label) %>% summarize(avg_res_ba=mean((residual_ba)^2)),n=50)
-# 
-# 
-# print(data.fit[data.fit$y>5,] %>% group_by(label) %>% summarize(avg_res_cnt=mean((residual_cnt)^2)),n=50)
-# print(data.fit[data.fit$y>5,] %>% group_by(NAME_1,label) %>% summarize(avg_res_cnt=mean((residual_cnt)^2)),n=50)
-# 
-# print(data.fit[data.fit$transformed_ba>log(50),] %>% group_by(label) %>% summarize(avg_res_ba=mean((residual_ba)^2)),n=50)
-# print(data.fit[data.fit$transformed_ba>log(50),] %>% group_by(NAME_1, label) %>% summarize(avg_res_ba=mean((residual_ba)^2)),n=50)
-# 
-#-----------------------------------------------------------------
-# Posterior Predictiv Check
+
+########################### Posterior Predictiv Check ######################
 
 thres.ba <- c(10, 50, 100, 150, 200, 300, 400, 500, 1000,2000)
 # ba.break <- c(-1, 100,200,500,10^10)
@@ -495,12 +369,6 @@ df.bin.cnt <- data.frame(
     mean(data.fit$y > thresh, na.rm = TRUE)
   })
 )
-# geom_segment(data = df.bin.org, 
-#              aes(x = ba, y = ba_bins, xend = ba, http://130.209.66.182:8787/graphics/38ce3b99-b76b-4fcf-9bf8-5a37dddda197.png
-#                  yend = as.numeric(ba_bins)+1),
-#              color = "red", 
-#              linetype = "dashed",
-#              size=1,show.legend=F)+
 
 cnt.rep.all <- data.frame()
 for (i in 1:1000){
@@ -549,7 +417,8 @@ dev.off()
 
 
 
-#-----------------------------------------------------------------
+################## Raw fire count and burnt area in spatial #####################
+
 dist<-read_sf(file.path(dir.data,'shapefile', "distritos.shp"))
 # Municipalities
 conc<-read_sf(file.path(dir.data, "shapefile","concelhos.shp"))
@@ -669,7 +538,7 @@ print(p)
 dev.off()
 
 
-
+################## Raw fire count and burnt area by month #####################
 
 df_wildfire_analysis_2 = data.fit%>% group_by(month) %>% summarize(mean_cnt = 5*sqrt(mean(y)),
                                                                   mean_ba = log(1+mean(area_ha))) |> as.data.frame()
@@ -721,10 +590,11 @@ p <- ggplot(df_long, aes(x = month, y = value)) +
 png(filename = file.path(dir.out, "Temporal_analysis.pdf"), width = 3000, height = 1500, res=300)
 print(p)
 dev.off()
-#----------------------boxplot of CNT/BA in single district --------------
+
+
+############# boxplot of forecasted fire count and burnt area over Portugal #####################
 ggplot() +geom_sf(data=merged_sf1, aes(fill=NAME_1,col=NAME_1)) + 
   geom_sf(data = sf_districts,color = "black", fill = NA)
-
 
 # dist.name <- 'Castelo Branco'
 # dist.name <- 'Guarda'
@@ -821,8 +691,8 @@ dev.off()
 
 
 
-###################################SHAP value##########################################
-# load(file.path(dir.out, 'XGBoost_Models.RData'))
+########################### SHAP value ###################################
+
 load(file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_CNT.RData'))
 load(file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_BA.RData'))
 library(xgboost)
@@ -1068,8 +938,9 @@ dev.off()
 
 
 
-################################latent effect###############
+######################## latent effect  #####################
 
+#---------------------extract all latent effects----------------
 samples[[1]]
 
 extract_var_name <- function(x){
@@ -1241,11 +1112,8 @@ year_effect_z_mean = apply(year_effect_z_array, 1, mean)
 year_effect_z_q975 = apply(year_effect_z_array, 1, quantile, probs = 0.975)
 year_effect_z_q025 = apply(year_effect_z_array, 1, quantile, probs = 0.025)
 
-# 
-# colnames(dist_effect_ba_mean) <- 1:156
-# colnames(dist_effect_q975) <- 1:156
-# colnames(dist_effect_q025) <- 1:156
 
+#------------------------Council level spatio-temporal effect-------------------
 
 load(file=file.path(dir.out, 'map_council_district.RData'))
 
@@ -1286,16 +1154,6 @@ for (i in 2:12){
 
 map_plot$month = factor(map_plot$month,levels = month.name )
 
-# df_name = deparse(substitute(df))
-# if (grepl('ba', df_name)){
-#   category = 'Burn Area'
-# }else if(grepl('cnt', df_name)){
-#   category = 'Fire Count'
-# }else if (grepl('z', df_name)){
-#   category = 'Fire Indicator'
-# }else{
-#   category = ' '
-# }
 
 
 p <-  ggplot(data = map_plot) +
@@ -1328,8 +1186,7 @@ print(p)
 dev.off()
 
  
-
-
+#------------------------District level spatio-temporal effect-------------------
 
 map_plot = map.district
 map_plot$mean = apply(dist_effect_z_mean,1, mean)
@@ -1348,16 +1205,6 @@ csc_mean_district <- scale_fill_gradientn(
   ))
 )
 
-# df_name = deparse(substitute(df))
-# if (grepl('ba', df_name)){
-#   category = 'Burn Area'
-# }else if(grepl('cnt', df_name)){
-#   category = 'Fire Count'
-# }else if (grepl('z', df_name)){
-#   category = 'Fire Indicator'
-# }else{
-#   category = ' '
-# }
 
 
 p <-  ggplot(data = map_plot) +
@@ -1425,7 +1272,7 @@ p <-  ggplot(data = map_plot) +
   )
 p
 
-
+#------------------------Year effect-------------------
 
 library(reshape2)
 
@@ -1480,6 +1327,8 @@ p <- ggplot(df, aes(x = Year, y = Effect, fill = Type)) +
 png(filename = file.path(dir.out, "Year_Effect.pdf"), width = 4000, height = 2000, res=300)
 print(p)
 dev.off()
+
+#------------------------XGBoost prediction effect-------------------
 
 
 df_errorbar <- df%>% group_by(Year, Type)%>% summarize(mean = mean(Effect),
@@ -1562,33 +1411,7 @@ df_z_ba$index <- factor(sprintf("%0.2f",df_z_ba$index))
 
 df_z <- rbind(df_z_cnt, df_z_ba)
 
-# p <- ggplot(df_cnt, aes(x = index, y = Effect)) +
-#   geom_boxplot(fill = "#a8dadc",position = position_dodge(width = 0.6),width = 0.5) +
-#   # Assign different colors to the data types (feel free to adjust these colors)
-#   # scale_fill_manual(values = c("cnt" = "#0D3B66",
-#   #                              "ba"  = "#ed6a5a",
-#   #                              "z"   = "#F4D35E")) +
-#   
-#   labs(y = "Effect of XGB_FC_Pred")+
-#   theme(
-#     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
-#     axis.title.x = element_blank(),
-#     legend.position = "None",
-#     legend.text = element_text(size = 10),
-#     legend.title = element_text(size = 20),        # Increased legend title size
-#     axis.line = element_line(colour = "black"),
-#     panel.grid.major = element_blank(),
-#     panel.grid.minor = element_blank(),
-#     axis.ticks = element_line(color = "black"),
-#     panel.border = element_blank(),
-#     panel.background = element_blank(),
-#     axis.text.y = element_text(size = 15),
-#     axis.title.y = element_text(size = 15),
-#     plot.title = element_text(hjust = 0.5, size = 25)
-#   )
-# png(filename = file.path(dir.out, "Effect_Fire_Count.pdf"), width = 4000, height = 2000, res=300)
-# print(p)
-# dev.off()
+
 
 df_cnt_errorbar <- df_cnt%>% group_by(index)%>% summarize(mean = mean(Effect),
                                                            lb = quantile(Effect,0.025),
@@ -1630,33 +1453,6 @@ dev.off()
 
 
 
-# p <- ggplot(df_ba, aes(x = index, y = Effect)) +
-#   geom_boxplot(fill = "#ed6a5a",position = position_dodge(width = 0.6),width = 0.5) +
-#   # Assign different colors to the data types (feel free to adjust these colors)
-#   # scale_fill_manual(values = c("cnt" = "#0D3B66",
-#   #                              "ba"  = "#ed6a5a",
-#   #                              "z"   = "#F4D35E")) +
-#   
-#   labs(y = "Effect of XGB_BA_Pred")+
-#   theme(
-#     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
-#     axis.title.x = element_blank(),
-#     legend.position = "None",
-#     legend.text = element_text(size = 10),
-#     legend.title = element_text(size = 20),        # Increased legend title size
-#     axis.line = element_line(colour = "black"),
-#     panel.grid.major = element_blank(),
-#     panel.grid.minor = element_blank(),
-#     axis.ticks = element_line(color = "black"),
-#     panel.border = element_blank(),
-#     panel.background = element_blank(),
-#     axis.text.y = element_text(size = 15),
-#     axis.title.y = element_text(size = 15),
-#     plot.title = element_text(hjust = 0.5, size = 25)
-#   )
-# png(filename = file.path(dir.out, "Effect_Burn_Area.pdf"), width = 4000, height = 2000, res=300)
-# print(p)
-# dev.off()
 
 df_ba_errorbar <- df_ba%>% group_by(index)%>% summarize(mean = mean(Effect),
                                                           lb = quantile(Effect,0.025),
@@ -1749,11 +1545,11 @@ ggplot(df_z_ba, aes(x = index, y = Effect)) +
     plot.title = element_text(hjust = 0.5, size = 25)
   )
 
-################# Posterior of xi and kappa################ 
+####################### Posterior of xi and kappa ##################### 
 df <- data.frame(xi = xi_array)
 
 # prior parameters
-lambda <- 10        # ← set to whatever λ you want
+lambda <- 10       
 xi_L   <- -0.5
 xi_U   <-  0.5
 
@@ -1866,7 +1662,7 @@ png(filename = file.path(dir.out, "Posterior_density_kappa.pdf"), width = 4000, 
 print(p)
 dev.off()
 
-########################################################################################
+######################## Estimated Likelihood ##############################
 x <- seq(0,5,0.01)
 
 kappa <- 2.739
@@ -1980,215 +1776,3 @@ png(filename = file.path(dir.out, "Density_likelihood.pdf"), width = 4000, heigh
 print(p)
 dev.off()
  
-
-# df.score.cnt <- data.frame('score' = data.fit2$score_cnt)
-# mat.score.cnt <- c()
-# mat.score.z <- c()
-# mat.score.ba <- c()
-# 
-# mat.time.cnt <- c()
-# mat.time.z <- c()
-# mat.time.ba <- c()
-# 
-# mat.spat.cnt <- c()
-# mat.spat.z <- c()
-# mat.spat.ba <- c()
-# 
-# for (i in 1:length(samples)){
-#   lp.score.cnt <- as.vector(A1%*%matrix(samples[[i]]$latent[idx.score_1,]))
-#   lp.score.z <- as.vector(A2%*%matrix(samples[[i]]$latent[idx.score_2,]))
-#   lp.score.ba <- as.vector(A3%*%matrix(samples[[i]]$latent[idx.score_3,]))
-#   
-#   mat.score.cnt <- rbind(mat.score.cnt, lp.score.cnt)
-#   mat.score.z <- rbind(mat.score.z, lp.score.z)
-#   mat.score.ba <- rbind(mat.score.ba, lp.score.ba)
-#   
-#   mat.time.cnt <- rbind(mat.time.cnt,samples[[i]]$latent[idx.time.idx1,])
-#   mat.time.z <- rbind(mat.time.z,samples[[i]]$latent[idx.time.idx2,])
-#   mat.time.ba <- rbind(mat.time.ba,samples[[i]]$latent[idx.time.idx3,])
-#   
-#   mat.spat.cnt <- rbind(mat.spat.cnt,samples[[i]]$latent[idx.Intercept1,] + 
-#                           rowSums(expand.grid(samples[[i]]$latent[idx.idarea1.u,],samples[[i]]$latent[idx.time.idx1,])))
-#   mat.spat.z <- rbind(mat.spat.z,samples[[i]]$latent[idx.Intercept2,] + 
-#                         rowSums(expand.grid(samples[[i]]$latent[idx.idarea2.u,],samples[[i]]$latent[idx.time.idx2,])))
-#   mat.spat.ba <- rbind(mat.spat.ba,samples[[i]]$latent[idx.Intercept3,] + 
-#                          rowSums(expand.grid(samples[[i]]$latent[idx.idarea3.u,],samples[[i]]$latent[idx.time.idx3,])))
-# }
-# 
-# data.fit2$effect_score_cnt_mean <- colMeans(mat.score.cnt)
-# data.fit2$effect_score_cnt_upp <- apply(mat.score.cnt,2 ,quantile,0.975)
-# data.fit2$effect_score_cnt_low <- apply(mat.score.cnt,2 ,quantile,0.025)
-# 
-# data.fit2$effect_score_z_mean <- colMeans(mat.score.z)
-# data.fit2$effect_score_z_upp <- apply(mat.score.z,2 ,quantile,0.975)
-# data.fit2$effect_score_z_low <- apply(mat.score.z,2 ,quantile,0.025)
-# 
-# data.fit2$effect_score_ba_mean <- colMeans(mat.score.ba)
-# data.fit2$effect_score_ba_upp <- apply(mat.score.ba,2 ,quantile,0.975)
-# data.fit2$effect_score_ba_low <- apply(mat.score.ba,2 ,quantile,0.025)
-# 
-# data.fit2$effect_spat_cnt_mean <- colMeans(mat.spat.cnt)
-# data.fit2$effect_spat_cnt_upp <- apply(mat.spat.cnt,2 ,quantile,0.975)
-# data.fit2$effect_spat_cnt_low <- apply(mat.spat.cnt,2 ,quantile,0.025)
-# 
-# data.fit2$effect_spat_z_mean <- colMeans(mat.spat.z)
-# data.fit2$effect_spat_z_upp <- apply(mat.spat.z,2 ,quantile,0.975)
-# data.fit2$effect_spat_z_low <- apply(mat.spat.z,2 ,quantile,0.025)
-# 
-# data.fit2$effect_spat_ba_mean <- colMeans(mat.spat.ba)
-# data.fit2$effect_spat_ba_upp <- apply(mat.spat.ba,2 ,quantile,0.975)
-# data.fit2$effect_spat_ba_low <- apply(mat.spat.ba,2 ,quantile,0.025)
-# 
-# ggplot(data.fit2) +
-#   stat_smooth(aes(x = score_cnt, y = effect_score_cnt_mean), col='#EB5B00') + 
-#   stat_smooth(aes(x = score_cnt, y = effect_score_cnt_upp),linetype='dashed',col='#EB5B00') + 
-#   stat_smooth(aes(x = score_cnt, y = effect_score_cnt_low),linetype='dashed',col='#EB5B00')+
-#   geom_point(aes(x = score_cnt, y = -5),size=0.8) + 
-#   labs(y='linear predicator')
-
-
-
-
-#----------------------------------boxplot by district----------------------
-
-time.idx <- 82
-# time.idx <-  152
-
-fire.dist.month <- st_drop_geometry(merged_sf1) %>% group_by(NAME_1, time.idx) %>% 
-  summarize(cnt.true = sum(y),
-            ba.true = sum(area_ha,na.rm=T),
-  )
-fire.dist.month$ba.true = ifelse(fire.dist.month$ba.true>0,log(fire.dist.month$ba.true),0)
-
-
-dist.vector <- data.fit %>% group_by(NAME_1) %>% 
-  summarize(lat = mean(lat.grid)
-  )%>% arrange(-lat)
-
-dist.vector <- as.character(dist.vector$NAME_1)
-
-df.dist.month <- data.frame(dist=factor(rep(dist.vector, each=length(pred.cnt[[1]]))),
-                            time.idx=time.idx, month=(time.idx-1)%%12 + 1)
-levels(df.dist.month$dist) <- dist.vector
-
-
-df.dist.month.true <- data.frame(dist=factor(dist.vector),time.idx=time.idx,
-                                 month=(time.idx-1)%%12 + 1)
-levels(df.dist.month.true$dist) <- dist.vector
-
-##INLA output
-for (dist in unique(df.dist.month$dist)){
-  idx <- which(merged_sf1$NAME_1==dist & merged_sf1$time.idx==time.idx)
-
-  pred.cnt.dist <- joint.post.sp(pred.cnt[idx])
-  pred.ba.dist <- joint.post.sp(lapply(pred.ba[idx], function(x) x^2))
-  df.dist.month[df.dist.month$dist==dist,'sample_cnt'] <- pred.cnt.dist
-  df.dist.month[df.dist.month$dist==dist,'sample_ba'] <- ifelse(pred.ba.dist>1,log(pred.ba.dist),0)
-}
-
-##XGBoost output
-# cutoff <- 0.7
-# xgb.pred.z <- (as.integer(data.fit$score_z>cutoff))
-# xgb.pred.cnt <- xgb.pred.z*data.fit$score_cnt
-# xgb.pred.ba <- xgb.pred.z*data.fit$score_ba
-# for (dist in unique(df.dist.month$dist)){
-#   idx <- which(merged_sf1$NAME_1==dist & merged_sf1$time.idx==time.idx)
-#   
-#   pred.cnt.dist <- sum(xgb.pred.cnt[idx])
-#   pred.ba.dist <- sum(xgb.pred.ba[idx])
-#   df.dist.month[df.dist.month$dist==dist,'sample_cnt'] <- pred.cnt.dist
-#   df.dist.month[df.dist.month$dist==dist,'sample_ba'] <- pred.ba.dist
-# }
-
-df.dist.month.true <- merge(df.dist.month.true,fire.dist.month,
-                            by.x=c('dist','time.idx'),
-                            by.y=c('NAME_1','time.idx'))
-
-
-
-ggplot(df.dist.month, aes(x = dist, y = sample_cnt)) +
-  geom_boxplot(outlier.shape=NA) + 
-  geom_line(data=df.dist.month.true, aes(x=dist,y=cnt.true,group = 1), col='red',linewidth=1)+
-  # labs(x = "Time", y = "fire count", title = paste("Predictive Total Fire Count in", dist.name,"During 2019-2020", sep=' ')) +
-  theme_minimal() +
-  ggtitle(paste("time index",time.idx))+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-        axis.title.x = element_blank())  # Rotate x-axis labels for clarity+
-
-
-ggplot(df.dist.month, aes(x = factor(dist), y = sample_ba)) +
-  geom_boxplot(outlier.shape=NA) + 
-  geom_line(data=df.dist.month.true, aes(x=factor(dist),y=ba.true,group = 1), col='red',linewidth=1)+
-  # labs(x = "Time", y = "fire count", title = paste("Predictive Total Fire Count in", dist.name,"During 2019-2020", sep=' ')) +
-  theme_minimal() +  
-  ggtitle(paste("time index",time.idx))+
-  # scale_y_continuous(limits = c(0, 100))+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-        axis.title.x = element_blank())  # Rotate x-axis labels for clarity+
-
-
-
-####################################################################
-ggplot() +geom_sf(data=merged_sf2, aes(fill=NAME_2,col=NAME_2)) + 
-  geom_sf(data = sf_conc,color = "black", fill = NA)+
-  theme(legend.position="none")
-
-
-
-time.idx <- 104
-
-
-
-fire.conc.month <- st_drop_geometry(merged_sf2) %>% group_by(NAME_2, time.idx) %>% 
-  summarize(cnt.true = sum(y),
-            ba.true = sum(transformed_ba),
-  )
-
-conc.vector <- fire.conc.month[fire.conc.month$time.idx==time.idx,] %>% group_by(NAME_2) %>% 
-  summarize(cnt.true = sum(cnt.true),
-            ba.true = sum(ba.true),
-  )%>% arrange(-ba.true) 
-conc.vector <- as.character(conc.vector$NAME_2)
-
-df.conc.month <- data.frame(conc=factor(rep(conc.vector, each=length(pred.cnt[[1]]))),
-                            time.idx=time.idx, month=(time.idx-1)%%12 + 1)
-levels(df.conc.month$conc) <- conc.vector
-
-
-df.conc.month.true <- data.frame(conc=factor(conc.vector),time.idx=time.idx,
-                                 month=(time.idx-1)%%12 + 1)
-levels(df.conc.month.true$conc) <- conc.vector
-
-for (conc in unique(df.conc.month$conc)){
-  idx <- which(merged_sf2$NAME_2==conc & merged_sf2$time.idx==time.idx)
-  
-  pred.cnt.conc <- joint.post.sp(pred.cnt[idx])
-  pred.ba.conc <- joint.post.sp(pred.ba[idx])
-  df.conc.month[df.conc.month$conc==conc,'sample_cnt'] <- pred.cnt.conc
-  df.conc.month[df.conc.month$conc==conc,'sample_ba'] <- pred.ba.conc
-}
-
-
-df.conc.month.true <- merge(df.conc.month.true,fire.conc.month,
-                            by.x=c('conc','time.idx'),
-                            by.y=c('NAME_2','time.idx'))
-
-
-
-ggplot(df.conc.month, aes(x = conc, y = sample_cnt)) +
-  geom_boxplot() + 
-  geom_line(data=df.conc.month.true, aes(x=conc,y=cnt.true,group = 1), col='red',linewidth=1)+
-  # labs(x = "Time", y = "fire count", title = paste("Predictive Total Fire Count in", conc.name,"During 2019-2020", sep=' ')) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-        axis.title.x = element_blank())  # Rotate x-axis labels for clarity+
-
-
-ggplot(df.conc.month, aes(x = factor(conc), y = sample_ba)) +
-  geom_boxplot() + 
-  geom_line(data=df.conc.month.true, aes(x=factor(conc),y=ba.true,group = 1), col='red',linewidth=1)+
-  # labs(x = "Time", y = "fire count", title = paste("Predictive Total Fire Count in", conc.name,"During 2019-2020", sep=' ')) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-        axis.title.x = element_blank())  # Rotate x-axis labels for clarity+
-

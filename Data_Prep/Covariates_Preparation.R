@@ -12,9 +12,8 @@ library(DescTools)
 dir.data <- "/home/pgrad2/2448355h/My_PhD_Project/00_Dataset/Porgual_Wildfire"
 
 ####################################################################
-#weather covariates
-###################################################################
-# load(file.path(dir.burn.area, "finaldata_urbanfire.RData"))
+#Load ERA5 Land covariates (2011–2023)
+####################################################################
 
 ncin <- nc_open(file.path(dir.data,'covariates', 'ERA5_Land_Daily_2011.nc'))
 
@@ -94,23 +93,6 @@ lai_lv.all[is.na(lai_lv.all)] <- 0
 
 dim(time_cf.all)
 
-
-
-
-
-
-
-#load geopetential data to get elevation
-# ncin <- nc_open(file.path(dir.data,'covariates', 'geopotential_0.1x0.1.nc'))
-# z <- ncvar_get(ncin,"z")
-# 
-# g <- 9.80665
-# lon.g <- round(ncvar_get(ncin,"longitude"),1)
-# lat.g <- round(ncvar_get(ncin,"latitude"),1)
-# 
-# print(c(length(lon.g),length(lat.g)))
-# 
-# max(z[match(round(lon+360,1),lon.g),match(round(lat,1),lat.g)]/g)
 
 # Load vegetation data
 ncin <- nc_open(file.path(dir.data,'covariates', 'low_veg_type.nc'))
@@ -223,7 +205,9 @@ for (year in 2012:2023){
 dim(tp.daily.all)
 
 
-#########create a daily level covariates table###############
+####################################################################
+#Create relative humidity and fire weather index
+####################################################################
 
 relative_humi <- function(t,td){
   E <- exp(17.67*td/(td + 243.5))
@@ -429,8 +413,10 @@ save(type_lv.all,
      )
 
 
+####################################################################
+# Merge Covariates with fire data
+####################################################################
 
-######################### Merge Covariates with fire data############
 load(file.path(dir.data, 'Covariates.RData'))
 load(file.path(dir.data,"Wildfire.RData"))
 
@@ -544,8 +530,10 @@ save(data.fit,file=file.path(dir.data,'Data_For_Fitting.RData'))
 
 
 
+####################################################################
+# Aggregate the covariates to council level
+####################################################################
 
-######################### Merge Covariates with fire data in council level ############
 load(file.path(dir.data,"Wildfire.RData"))
 
 dist<-shapefile(file.path(dir.data,'shapefile', "distritos.shp"))
@@ -725,141 +713,3 @@ data.fit.council <- data.fit.council[order(data.fit.council$time.idx,data.fit.co
 
 save(data.fit.council,file=file.path(dir.data,'Data_For_Fitting_Council.RData'))
 
-
-
-######################### Merge Covariates with fire data in district level ############
-load(file=file.path(dir.data,'Data_For_Fitting_Council.RData'))
-load(file=file.path(dir.data,'Data_For_Fitting.RData'))
-
-dist<-shapefile(file.path(dir.data,'shapefile', "distritos.shp"))
-
-dist$ID_0 <- as.factor(iconv(as.character(dist$ID_0), "UTF-8"))
-dist$ISO <- as.factor(iconv(as.character(dist$ISO), "UTF-8"))
-dist$NAME_0 <- as.factor(iconv(as.character(dist$NAME_0), "UTF-8"))
-dist$ID_1 <- as.factor(iconv(as.character(dist$ID_1), "UTF-8"))
-dist$NAME_1 <- as.factor(iconv(as.character(dist$NAME_1), "UTF-8"))
-dist$HASC_1 <- as.factor(iconv(as.character(dist$HASC_1),  "UTF-8"))
-dist$CCN_1<- as.factor(iconv(as.character(dist$CCN_1),  "UTF-8"))
-dist$CCA_1 <- as.factor(iconv(as.character(dist$CCA_1), "UTF-8"))
-dist$TYPE_1 <- as.factor(iconv(as.character(dist$TYPE_1), "UTF-8"))
-dist$ENGTYPE_1 <- as.factor(iconv(as.character(dist$ENGTYPE_1), "UTF-8"))
-dist$NL_NAME_1 <- as.factor(iconv(as.character(dist$NL_NAME_1), "UTF-8"))
-dist$VARNAME_1 <- as.factor(iconv(as.character(dist$VARNAME_1), "UTF-8"))
-dist=dist[dist$NAME_1!="Açores",]
-dist=dist[dist$NAME_1!="Madeira",]
-sf_districts <- st_as_sf(dist)
-
-
-
-map <- sf_districts[,'NAME_1']
-rownames(map) <- sf_districts$NAME_1
-
-library(spdep)
-nb <- poly2nb(map)
-map$grid.idx <- 1:nrow(map)
-centroids <- st_centroid(map)
-centroid_coords <- st_coordinates(centroids)
-map$lon.grid <- centroid_coords[,1]
-map$lat.grid <- centroid_coords[,2]
-ggplot(map) + geom_sf()+
-  geom_text(aes(lon.grid, lat.grid, label = grid.idx), size=2,color='red') 
-
-
-data.merge <- map |>
-  st_join(st_as_sf(data.fit.council[,c('lon.grid','lat.grid','time.idx',
-                                       'area_ha','y')],coords=c('lon.grid','lat.grid'),crs=4326)) 
-
-data.agg <- data.merge %>% st_drop_geometry() %>% 
-  group_by(grid.idx, time.idx) %>%
-  summarise(area_ha = mean(area_ha,na.rm=TRUE), 
-            log_ba = log(area_ha),
-            y = mean(y))
-
-B1 <- st_drop_geometry(map)
-
-n.months <- 156
-
-data.fit.district <- do.call(rbind, lapply(1:n.months, function(x) {B1$time.idx = x
-return(B1)}))
-print(dim(data.fit.district))
-data.fit.district <- merge(data.fit.district, data.agg[,c('grid.idx','time.idx','y','area_ha','log_ba')],
-                          by=c('grid.idx','time.idx'),all.x=T)
-
-print(dim(data.fit.district))
-
-
-data.fit.district[is.na(data.fit.district$y),'y'] <- 0
-summary(data.fit.district$y)
-
-
-data.fit.district$month <- (data.fit.district$time.idx-1)%%12 + 1
-data.fit.district$year <- (data.fit.district$time.idx-1)%/%12 + 2011
-
-data.fit.district <- data.fit.district[order(data.fit.district$time.idx,data.fit.district$grid.idx),]
-
-ggplot(data=st_as_sf(data.fit.district[data.fit.district$time.idx==152,], coords = c('lon.grid','lat.grid'),crs=4326))+
-  geom_sf(aes(color=log_ba))
-
-data.fit.sf <- data.fit |> 
-  st_as_sf(coords = c("lon.grid", "lat.grid"), crs = 4326) |>
-  st_join(sf_districts[,'NAME_1'], join = st_nearest_feature) |>
-  st_drop_geometry()
-
-my.mode <- function(x){
-  return(as.integer(tail(names(sort(table(x))), 1)))
-}
-
-cov.district <- data.fit.sf %>%
-  group_by(NAME_1,time.idx) %>%
-  summarise(
-    FWI = mean(FWI),
-    HVegCov = mean(HVegCov),
-    HVegLAI = mean(HVegLAI),
-    HVegTyp = my.mode(HVegTyp),
-    LVegCov = mean(LVegCov),
-    LVegLAI = mean(LVegLAI),
-    LVegTyp = my.mode(LVegTyp),
-    Pricp = mean(Pricp),
-    RHumi = mean(RHumi),
-    Temp = mean(Temp),
-    UComp = mean(UComp),
-    VComp = mean(VComp),
-    DewPoint = mean(DewPoint),
-    WindSpeed = mean(WindSpeed)
-  )
-
-
-data.fit.district <- merge(data.fit.district,cov.district,by=c("NAME_1",'time.idx'),all.x=TRUE)
-
-cov.names <- c('FWI','HVegCov','HVegLAI','HVegTyp','LVegCov','LVegLAI','LVegTyp',
-               'Pricp','RHumi','Temp','UComp','VComp','DewPoint','WindSpeed')
-
-
-data.fit.district <- data.fit.district[order(data.fit.district$time.idx,data.fit.district$grid.idx),]
-
-missing.district <- unique(data.fit.district[is.na(data.fit.district$FWI),'NAME_1'] )
-# 
-# if(length(missing.council)>0){
-#   for (t in 1:n.months){
-#     print(t)
-#     for (council in missing.council){
-#       cond1 <- data.fit.district$time.idx==t & data.fit.district$NAME_2==council
-#       cond2 <- data.fit$time.idx==t 
-#       tmp <- st_as_sf(data.fit[cond2, c("lon.grid", "lat.grid",cov.names)],coords = c("lon.grid", "lat.grid"), crs = 4326)
-#       tmp$HVegTyp <- as.integer(as.character(tmp$HVegTyp))
-#       tmp$LVegTyp <- as.integer(as.character(tmp$LVegTyp))
-#       
-#       data.fit.district[cond1,cov.names] <- 
-#         data.fit.district[cond1,c('lon.grid','lat.grid')] |>
-#         st_as_sf(coords = c("lon.grid", "lat.grid"), crs = 4326) |>
-#         st_join(tmp, join = st_nearest_feature) |>
-#         st_drop_geometry()
-#     }
-#   }
-# }
-
-
-ggplot(data=st_as_sf(data.fit.district[data.fit.district$time.idx==31,], coords = c('lon.grid','lat.grid'),crs=4326))+
-  geom_sf(aes(color=Temp))
-
-save(data.fit.district,file=file.path(dir.data,'Data_For_Fitting_District.RData'))
