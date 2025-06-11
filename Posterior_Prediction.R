@@ -10,11 +10,18 @@ print(detectCores())
 
 inla.setOption(scale.model.default = TRUE)
 
+load(file.path(dir.out, 'dataset_perf_evaluate.RData'))
 
 
-load(file=file.path(dir.out, 'Model_egp_bym2.RData'))
+
+# load(file=file.path(dir.out, 'Model_egp_bym2.RData'))
 # load(file=file.path(dir.out, 'Model_weibull_bym2.RData'))
 # load(file=file.path(dir.out, 'Model_gamma_bym2.RData'))
+
+load(file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
+# load(file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
+# load(file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
+# load(file=file.path(dir.out, 'Model_egp_bym2_h1_noxgb.RData'))
 
 result <- res
 print(summary(result))
@@ -24,8 +31,8 @@ samples = inla.posterior.sample(n.samples, result = result, seed=1234)
 apply(sapply(samples, function(x) x$hyperpar),1,summary)
 
 # n1 <- 144300
-n1 <- 43368
-
+# n1 <- 43368
+n1 <- nrow(data.fit)
 
 # weillbull  
 post.pred.weibull.hurdle.parallel <- function(samples, idx.pred.pois, idx.pred.z, idx.pred.ba,n.samples=200 ){
@@ -246,9 +253,9 @@ idx.pred.ba <- (2*n1+1):(3*n1)
 
 
 t1 <- Sys.time()
-pred.sp <- post.pred.egp.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
+# pred.sp <- post.pred.egp.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
 # pred.sp <- post.pred.weibull.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
-# pred.sp <- post.pred.gamma.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
+pred.sp <- post.pred.gamma.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
 
 t2 <- Sys.time()
 print(t2-t1)
@@ -256,6 +263,11 @@ print(t2-t1)
 
 
 
-save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred.RData'))
+# save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred.RData'))
 # save(pred.sp, file=file.path(dir.out,'Model_weibull_bym2_pred.RData'))
 # save(pred.sp, file=file.path(dir.out,'Model_gamma_bym2_pred.RData'))
+
+save(pred.sp, file=file.path(dir.out,'Model_gamma_bym2_pred_h1.RData'))
+# save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred_h1.RData'))
+# save(pred.sp, file=file.path(dir.out,'Model_weibull_bym2_pred_h1.RData'))
+# save(pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred_h1_noxgb.RData'))
