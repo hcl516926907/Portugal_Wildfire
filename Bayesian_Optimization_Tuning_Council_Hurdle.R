@@ -456,6 +456,90 @@ acf(data.fit.train$xgb_ba,lag.max=120)
 acf(data.fit.train$xgb_cnt,lag.max=120)
 
 
+
+overall_ts <- data.fit.train %>%
+  group_by(time.idx) %>%
+  summarize(mean_xgb_ba = mean(xgb_ba, na.rm = TRUE)) %>%
+  arrange(time.idx)
+
+# 2. Compute the ACF (does NOT plot)
+acf_res <- acf(overall_ts$mean_xgb_ba, plot = FALSE, lag.max=70 )
+
+# 3. Turn it into a data frame
+acf_df <- with(acf_res, 
+               data.frame(
+                 lag = as.numeric(lag),
+                 acf = as.numeric(acf)
+               )) %>%
+  filter(lag >= 0)    # keep non‐negative lags only
+
+# 4. Plot with ggplot2
+p <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_col(width = 0.1) +
+  labs(x     = "Lag",
+       y     = "ACF of Burn Area") +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.text.x=element_text(size=15),
+    axis.text.y=element_text(size=15),
+    axis.title.x=element_text(size=15),
+    axis.title.y=element_text(size=15)) 
+
+png(filename = file.path(dir.out, "ACF_BA.pdf"), width =4000 , height = 2000, res=300)
+print(p)
+dev.off()
+
+
+
+overall_ts <- data.fit.train %>%
+  group_by(time.idx) %>%
+  summarize(mean_xgb_cnt = mean(xgb_cnt, na.rm = TRUE)) %>%
+  arrange(time.idx)
+
+# 2. Compute the ACF (does NOT plot)
+acf_res <- acf(overall_ts$mean_xgb_cnt, plot = FALSE, lag.max=70 )
+
+# 3. Turn it into a data frame
+acf_df <- with(acf_res, 
+               data.frame(
+                 lag = as.numeric(lag),
+                 acf = as.numeric(acf)
+               )) %>%
+  filter(lag >= 0)    # keep non‐negative lags only
+
+# 4. Plot with ggplot2
+ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_col(width = 0.1) +
+  labs(x     = "Lag",
+       y     = "ACF of Fire Count") +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.text.x=element_text(size=15),
+    axis.text.y=element_text(size=15),
+    axis.title.x=element_text(size=15),
+    axis.title.y=element_text(size=15)) 
+# Assuming your dataset 'df.train' is already available in the environment
+
+png(filename = file.path(dir.out, "ACF_Count.pdf"), width =4000 , height = 2000, res=300)
+print(p)
+dev.off()
+
+
+
+
+
 data.fit.train.positive <- data.fit.train[data.fit.train$y>0,]
 data.fit.test.positive <- data.fit.test[data.fit.test$y>0,]
 
