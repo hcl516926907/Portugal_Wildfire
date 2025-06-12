@@ -13,3 +13,6 @@
 /Shiny/rsconnect/*
 *.adj
 /Shiny/*.adj
+.gitignore
+Shiny/
+Archive/
