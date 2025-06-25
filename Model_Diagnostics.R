@@ -64,10 +64,10 @@ p <- ggplot() +
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.x=element_text(size=15),
-    axis.text.y=element_text(size=15),
-    axis.title.x=element_text(size=15),
-    axis.title.y=element_text(size=15)) 
+    axis.text.x=element_text(size=30),
+    axis.text.y=element_text(size=30),
+    axis.title.x=element_text(size=30),
+    axis.title.y=element_text(size=25)) 
 
 png(filename = file.path(dir.out, "Histgram_burn_area.pdf"), width =4000 , height = 2000, res=300)
 print(p)
@@ -108,10 +108,10 @@ p <- ggplot() +
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.x=element_text(size=15),
-    axis.text.y=element_text(size=15),
-    axis.title.x=element_text(size=15),
-    axis.title.y=element_text(size=15)) 
+    axis.text.x=element_text(size=30),
+    axis.text.y=element_text(size=30),
+    axis.title.x=element_text(size=30),
+    axis.title.y=element_text(size=25)) 
 
 png(filename = file.path(dir.out, "Histgram_fire_count.pdf"), width =4000 , height = 2000, res=300)
 print(p)
@@ -348,10 +348,10 @@ p <- ggplot(ba.rep.all, aes(x = prob, y = as.factor(threshold))) +
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.x=element_text(size=15),
-    axis.text.y=element_text(size=15),
-    axis.title.x=element_text(size=15),
-    axis.title.y=element_text(size=15)) 
+    axis.text.x=element_text(size=20),
+    axis.text.y=element_text(size=20),
+    axis.title.x=element_text(size=20),
+    axis.title.y=element_text(size=20)) 
 print(p)
 
 png(filename = file.path(dir.out, "Threshold_Exceedance_BA.pdf"), width = 3000, height = 1500, res=300)
@@ -405,10 +405,10 @@ p <- ggplot(cnt.rep.all, aes(x = prob, y = as.factor(threshold))) +
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.x=element_text(size=15),
-    axis.text.y=element_text(size=15),
-    axis.title.x=element_text(size=15),
-    axis.title.y=element_text(size=15)) 
+    axis.text.x=element_text(size=20),
+    axis.text.y=element_text(size=20),
+    axis.title.x=element_text(size=20),
+    axis.title.y=element_text(size=20)) 
 print(p)
 
 png(filename = file.path(dir.out, "Threshold_Exceedance_CNT.pdf"), width = 3000, height = 1500, res=300)
@@ -487,23 +487,24 @@ csc_ba <- scale_fill_gradientn(
 
 p <- ggplot() + geom_sf(data=df_wildfire, aes(fill=mean_cnt,col=mean_cnt))+
   csc_cnt +  guides(colour = "none") + 
-  labs(title='Count')+
+  labs(title= expression(sqrt(Count_mean)))+
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 30),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 50),
     axis.title.x = element_blank(),
     legend.position = "right",
-    legend.text = element_text(size = 30),
-    legend.title = element_text(size = 30,hjust=0.5),        # Increased legend title size
+    legend.key.size = unit(4, "lines"),
+    legend.text = element_text(size = 50),
+    legend.title = element_blank(),        # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 30),
-    axis.title.y = element_text(size = 30),
-    plot.title = element_text(hjust = 0.5, size = 35),  # Center and increase title size
-    strip.text = element_text(size = 30)                # Increase facet header size
+    axis.text.y = element_text(size = 50),
+    axis.title.y = element_text(size = 50),
+    plot.title = element_text(hjust = 0.5, size = 60),  # Center and increase title size
+    strip.text = element_text(size = 50)                # Increase facet header size
   )
 
 png(filename = file.path(dir.out, "raw_fire_count_spatial.pdf"), width =5000 , height = 6666, res=300)
@@ -513,23 +514,24 @@ dev.off()
 
 p <- ggplot() + geom_sf(data=df_wildfire, aes(fill=mean_ba,col=mean_ba))+
 csc_ba +  guides(colour = "none") +  
-  labs(title='Burn Area')+
+  labs(title= expression(log(1+BurnArea_mean)))+
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 30),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 50),
     axis.title.x = element_blank(),
     legend.position = "right",
-    legend.text = element_text(size = 30),
-    legend.title = element_text(size = 30,hjust=0.5),        # Increased legend title size
+    legend.key.size = unit(4, "lines"),
+    legend.text = element_text(size = 50),
+    legend.title = element_blank(),        # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 30),
-    axis.title.y = element_text(size = 30),
-    plot.title = element_text(hjust = 0.5, size = 35),  # Center and increase title size
-    strip.text = element_text(size = 30)                # Increase facet header size
+    axis.text.y = element_text(size = 50),
+    axis.title.y = element_text(size = 50),
+    plot.title = element_text(hjust = 0.5, size = 60),  # Center and increase title size
+    strip.text = element_text(size = 50)                # Increase facet header size
   )
 
 
@@ -640,7 +642,7 @@ p <- ggplot(df.dist[df.dist$time_label %in% subset.label,], aes(x = factor(time_
   
   labs(x = "Time", y = expression(sqrt("Fire Count"))) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,size=15),
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,size=25),
         axis.title.x = element_blank(),
         legend.position="none",
         axis.line = element_line(colour = "black"),
@@ -649,8 +651,8 @@ p <- ggplot(df.dist[df.dist$time_label %in% subset.label,], aes(x = factor(time_
         axis.ticks = element_line(color = "black"),
         panel.border = element_blank(),
         panel.background = element_blank(),
-        axis.text.y=element_text(size=15),
-        axis.title.y=element_text(size=15))  # Rotate x-axis labels for clarity+
+        axis.text.y=element_text(size=25),
+        axis.title.y=element_text(size=25))  # Rotate x-axis labels for clarity+
 
 print(p)
 
@@ -670,7 +672,7 @@ p <- ggplot(df.dist[df.dist$time_label %in% subset.label,], aes(x = factor(time_
   labs(x = "Time", y = "log (1 + Burn Area)") +
   # scale_y_continuous(limits = c(0, 500))+
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,size=15),
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,size=25),
         axis.title.x = element_blank(),
         legend.position="none",
         axis.line = element_line(colour = "black"),
@@ -679,8 +681,8 @@ p <- ggplot(df.dist[df.dist$time_label %in% subset.label,], aes(x = factor(time_
         axis.ticks = element_line(color = "black"),
         panel.border = element_blank(),
         panel.background = element_blank(),
-        axis.text.y=element_text(size=15),
-        axis.title.y=element_text(size=15))  # Rotate x-axis labels for clarity+
+        axis.text.y=element_text(size=25),
+        axis.title.y=element_text(size=25))  # Rotate x-axis labels for clarity+
 print(p)
 
 png(filename = file.path(dir.out, "Posterior_Prediction_BA.pdf"), width = 4000, height = 2000, res=300)
@@ -744,11 +746,11 @@ rename_var <- function(x){
                "HVegTyp_18"  = "VegTyp_Mixed_Forest",
                "LVegTyp_11" = "VegTyp_Semidesert",
                
-               "hist_cnt_h1_3m" = 'conc_cnt_hist_3',
-               "hist_cnt_h1_5m" = 'conc_cnt_hist_5',
-               "cnt_ma_24" = "conc_cnt_ma_24",
-               'dist_cnt_lag0' = 'dist_cnt_lag_1',
-               'dist_hist_cnt_h1_1m' = 'dist_cnt_hist_1',
+               "hist_cnt_h1_3m" = 'conc_fc_hist_3',
+               "hist_cnt_h1_5m" = 'conc_fc_hist_5',
+               "cnt_ma_24" = "conc_fc_ma_24",
+               'dist_cnt_lag0' = 'dist_fc_lag_1',
+               'dist_hist_cnt_h1_1m' = 'dist_fc_hist_1',
                
                'hist_ba_h1_3m' = 'conc_ba_hist_3',
                'dist_ba_lag0' = 'dist_ba_lag_1',
@@ -866,18 +868,18 @@ my_shap_plot_summary <- function(data_long, x_bound = NULL, dilute = FALSE, scie
                                                                                                                             y = value, color = stdfvalue), method = "counts", maxwidth = 0.7, 
                                                                                                                         alpha = 0.7) + geom_text(data = unique(data_long[, c("variable", 
                                                                                                                                                                              "mean_value")]), aes(x = variable, y = -Inf, label = sprintf(label_format, 
-                                                                                                                                                                                                                                          mean_value)), size = 5, alpha = 0.7, hjust = -0.2, fontface = "bold", 
+                                                                                                                                                                                                                                          mean_value)), size = 7, alpha = 0.7, hjust = -0.2, fontface = "bold", 
                                                                                                                                                  check_overlap = TRUE) + scale_color_gradient(low = min_color_bound, 
                                                                                                                                                                                               high = max_color_bound, breaks = c(0, 1), labels = c(" Low", 
                                                                                                                                                                                                                                                    "High "), guide = guide_colorbar(barwidth = 12, barheight = 0.3)) + 
       theme_bw() + theme(axis.line.y = element_blank(), axis.ticks.y = element_blank(), 
                          legend.position = "bottom",
-                         axis.text.x=element_text(size=15),
-                         axis.text.y=element_text(size=15),
-                         axis.title.x=element_text(size=15),
+                         axis.text.x=element_text(size=25),
+                         axis.text.y=element_text(size=25),
+                         axis.title.x=element_text(size=25),
                          axis.title.y=element_blank(),
-                         legend.text = element_text(size=12),
-                         legend.title = element_text(size=15,margin = margin(r = 20))) + 
+                         legend.text = element_text(size=25),
+                         legend.title = element_text(size=25,margin = margin(r = 20))) + 
       scale_x_discrete(limits = rev(levels(data_long$variable)), 
                        labels = (rev(levels(data_long$variable)))) +
       labs(color = 'Covariate Value ')
@@ -894,7 +896,7 @@ p <- my_shap_plot_summary(top20_cnt, x_bound  = 2, dilute = 20,
 p
 
 
-png(filename = file.path(dir.out, "SHAP_Fire_Count.pdf"), width = 4000, height = 2000, res=300)
+png(filename = file.path(dir.out, "SHAP_Fire_Count.pdf"), width = 4000, height = 2500, res=300)
 print(p)
 dev.off()
 
@@ -913,29 +915,9 @@ p <- my_shap_plot_summary(top20_ba, x_bound  = 5, dilute = 20,
                        max_color_bound  = "#ff5050") + 
   labs(y = "SHAP Value for Burn Area XGBoost")
 p
-png(filename = file.path(dir.out, "SHAP_Burn_Area.pdf"), width = 4000, height = 2000, res=300)
+png(filename = file.path(dir.out, "SHAP_Burn_Area.pdf"), width = 4000, height = 2500, res=300)
 print(p)
 dev.off()
-
-X_train_cnt <- data.rf[data.rf$y>0,covar.names]
-shap_values_cnt <- shap.values(xgb_model = model.cnt, X_train = xgb.DMatrix(as.matrix(X_train_cnt)) )
-
-shap_long_cnt <- shap.prep(shap_contrib = shap_values_cnt$shap_score, X_train = as.matrix(X_train_cnt))
-levels(shap_long_cnt$variable)
-
-levels(shap_long_cnt$variable) <- rename_var(levels(shap_long_cnt$variable))
-
-top20_cnt <- shap_long_cnt[shap_long_cnt$variable %in% levels(shap_long_cnt$variable)[1:10],] %>% droplevels()
-
-p <- my_shap_plot_summary(top20_cnt, x_bound  = 2.3, dilute = 20,
-                       min_color_bound = '#3399ff',
-                       max_color_bound  = "#ff5050")+
-  labs(y = "SHAP Value for Fire Count XGBoost") 
-p
-png(filename = file.path(dir.out, "SHAP_cnt.png"), width = 4000, height = 2000, res=300)
-print(p)
-dev.off()
-
 
 
 ######################## latent effect  #####################
@@ -1163,21 +1145,22 @@ p <-  ggplot(data = map_plot) +
   labs(title = 'Council-Level Effect',
        fill = "Value") +
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 30),
     axis.title.x = element_blank(),
     legend.position = "right",
-    legend.text = element_text(size = 10),
-    legend.title = element_text(size = 20),        # Increased legend title size
+    legend.key.size = unit(3, "lines"),
+    legend.text = element_text(size = 30),
+    legend.title = element_text(size = 30),        # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
-    plot.title = element_text(hjust = 0.5, size = 25),  # Center and increase title size
-    strip.text = element_text(size = 20)                # Increase facet header size
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
+    plot.title = element_text(hjust = 0.5, size = 40),  # Center and increase title size
+    strip.text = element_text(size = 30)                # Increase facet header size
   )
 p
 
@@ -1213,21 +1196,22 @@ p <-  ggplot(data = map_plot) +
   labs(title = 'District-Level Effect',
        fill = "Value") +
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 50),
     axis.title.x = element_blank(),
     legend.position = "right",
-    legend.text = element_text(size = 10),
-    legend.title = element_text(size = 20),        # Increased legend title size
+    legend.key.size = unit(3, "lines"),
+    legend.text = element_text(size = 30),
+    legend.title = element_blank(),        # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
-    plot.title = element_text(hjust = 0.5, size = 25),  # Center and increase title size
-    strip.text = element_text(size = 20)                # Increase facet header size
+    axis.text.y = element_text(size = 50),
+    axis.title.y = element_text(size = 50),
+    plot.title = element_text(hjust = 0.5, size = 40),  # Center and increase title size
+    strip.text = element_text(size = 50)                # Increase facet header size
   )
 p
 
@@ -1300,33 +1284,6 @@ df <- subset(df, Year != "2023")
 # Ensure Year is a factor with levels from 2011 to 2022
 df$Year <- factor(df$Year, levels = as.character(2011:2022))
 
-p <- ggplot(df, aes(x = Year, y = Effect, fill = Type)) +
-  geom_boxplot(position = position_dodge(width = 0.6),width = 0.5) +
-  # Assign different colors to the data types (feel free to adjust these colors)
-  scale_fill_manual(values = c("Fire Count" = "#a8dadc",
-                               "Burn Area"  = "#ed6a5a",
-                               "Fire Presence"   = "#F4D35E")) +
-
-  labs(y = "Year Effect")+
-  theme(
-    axis.text.x = element_text( vjust = 0.5, size = 15),
-    axis.title.x = element_blank(),
-    legend.position = c(0.1, 0.1),
-    legend.text = element_text(size = 15),
-    legend.title = element_text(size = 15),        # Increased legend title size
-    axis.line = element_line(colour = "black"),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    axis.ticks = element_line(color = "black"),
-    panel.border = element_blank(),
-    panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
-    plot.title = element_text(hjust = 0.5, size = 25))
-
-png(filename = file.path(dir.out, "Year_Effect.pdf"), width = 4000, height = 2000, res=300)
-print(p)
-dev.off()
 
 #------------------------XGBoost prediction effect-------------------
 
@@ -1356,19 +1313,19 @@ p <- ggplot(df_errorbar, aes(x = Year, y = mean)) +
   )) +
   labs(y = "Year Effect") +
   theme(
-    axis.text.x      = element_text(vjust = 0.5, size = 15),
+    axis.text.x      = element_text(vjust = 0.5, size = 20),
     axis.title.x     = element_blank(),
-    legend.position  = c(0.1, 0.1),
-    legend.text      = element_text(size = 15),
-    legend.title     = element_text(size = 15),
+    legend.position  = c(0.75, 0.9),
+    legend.text      = element_text(size = 20),
+    legend.title     = element_text(size = 20),
     axis.line        = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks       = element_line(color = "black"),
     panel.border     = element_blank(),
     panel.background = element_blank(),
-    axis.text.y      = element_text(size = 15),
-    axis.title.y     = element_text(size = 15),
+    axis.text.y      = element_text(size = 20),
+    axis.title.y     = element_text(size = 20),
     plot.title       = element_text(hjust = 0.5, size = 25)
   )
 
@@ -1432,7 +1389,7 @@ p <- ggplot(df_cnt_errorbar, aes(x = index, y = mean)) +
 
   labs(y = "Effect of XGB_FC_Pred")+
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 30),
     axis.title.x = element_blank(),
     legend.position = "None",
     legend.text = element_text(size = 10),
@@ -1443,8 +1400,8 @@ p <- ggplot(df_cnt_errorbar, aes(x = index, y = mean)) +
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
     plot.title = element_text(hjust = 0.5, size = 25)
   )
 png(filename = file.path(dir.out, "Effect_Fire_Count.pdf"), width = 4000, height = 2000, res=300)
@@ -1471,9 +1428,9 @@ p <- ggplot(df_ba_errorbar, aes(x = index, y = mean)) +
     size = 2
   ) +
   
-  labs(y = "Effect of XGB_FC_Pred")+
+  labs(y = "Effect of XGB_BA_Pred")+
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 30),
     axis.title.x = element_blank(),
     legend.position = "None",
     legend.text = element_text(size = 10),
@@ -1484,8 +1441,8 @@ p <- ggplot(df_ba_errorbar, aes(x = index, y = mean)) +
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
     plot.title = element_text(hjust = 0.5, size = 25)
   )
 png(filename = file.path(dir.out, "Effect_Burn_Area.pdf"), width = 4000, height = 2000, res=300)
@@ -1569,14 +1526,14 @@ p <- ggplot(df, aes(x = xi)) +
   stat_density(aes(color = "Posterior"),
                geom   = "line",
                bw     = 0.01,   # or adjust = 1.5
-               size   = 1,
+               size   = 2,
                linetype = 'dashed'
   ) +
   # prior density
   stat_function(
     fun = dtrunc_laplace, 
     aes(color = "Prior"),
-    size = 1, 
+    size = 2, 
     linetype = 'dotdash',
     n = 512
   ) +
@@ -1590,20 +1547,20 @@ p <- ggplot(df, aes(x = xi)) +
   ) +
   xlim(-0.5, 0.5)+
   theme(
-    axis.text.x = element_text(size = 15),
+    axis.text.x = element_text(size = 30),
     axis.title.x = element_blank(),
-    legend.position  = c(0.1, 0.9),
-    legend.text = element_text(size = 15),
+    legend.position  = c(0.2, 0.8),
+    legend.text = element_text(size = 30),
     legend.key.size = unit(3, "lines"),
-    legend.title = element_text(size = 20),        # Increased legend title size
+    legend.title = element_text(size = 30),        # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
     plot.title = element_text(hjust = 0.5, size = 25)
   )
 png(filename = file.path(dir.out, "Posterior_density_xi.pdf"), width = 4000, height = 2000, res=300)
@@ -1621,14 +1578,14 @@ p <- ggplot(df, aes(x = kappa)) +
   stat_density(aes(color = "Posterior"),
                geom   = "line",
                adjust = 15,
-               size   = 1,
+               size   = 2,
                linetype = 'dashed'
   ) +
   # prior density
   stat_function(
     fun = dgamma_prior, 
     aes(color = "Prior"),
-    size = 1, 
+    size = 2, 
     linetype = 'dotdash',
     n = 512
   ) +
@@ -1642,19 +1599,20 @@ p <- ggplot(df, aes(x = kappa)) +
   ) +
   xlim(0, 4)+
   theme(
-    axis.text.x = element_text(size = 15),
+    axis.text.x = element_text(size = 30),
     axis.title.x = element_blank(),
-    legend.position = "None",
-    legend.text = element_text(size = 10),
-    legend.title = element_text(size = 20),        # Increased legend title size
+    legend.position  = 'none',
+    legend.text =  element_blank(),
+    legend.key.size = unit(3, "lines"),
+    legend.title = element_text(size = 30),        # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
     plot.title = element_text(hjust = 0.5, size = 25)
   )
 
@@ -1752,25 +1710,26 @@ df_long <- pivot_longer(
 p <- ggplot(df_long, aes(x = x, y = Density, 
                     color = Distribution, 
                     linetype = Distribution)) +
-  geom_line(size = 1) +
+  geom_line(size = 2) +
   labs(
     y     = "Density",
   ) +
   theme(
-    axis.text.x = element_text(size = 10),
+    axis.text.x = element_text(size = 30),
     axis.title.x = element_blank(),
-    legend.position  = c(0.8, 0.8),
-    legend.text = element_text(size = 10),
-    legend.title = element_text(size = 10),        # Increased legend title size
+    legend.position  = c(0.7, 0.7),
+    legend.text =  element_text(size = 30),
+    legend.key.size = unit(3, "lines"),
+    legend.title = element_text(size = 30),      # Increased legend title size
     axis.line = element_line(colour = "black"),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     panel.border = element_blank(),
     panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
-    plot.title = element_text(hjust = 0.5, size = 25)
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
+    plot.title = element_text(hjust = 0.5, size = 30)
   )
 png(filename = file.path(dir.out, "Density_likelihood.pdf"), width = 4000, height = 2000, res=300)
 print(p)
