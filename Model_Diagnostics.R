@@ -15,13 +15,110 @@ library(RColorBrewer)
 library(scoringRules)
 library(ggridges)
 library(data.table)
-
+library(paletteer)
 
 load(file.path(dir.out, 'dataset_perf_evaluate.RData'))
 
 
 data.fit$transformed_ba <- data.fit$area_ha^{1/2}
 
+###########################     PC Prior      ##########################
+lambdas <- c(0.1, 0.5, 1, 2, 5, 10)
+kappa   <- seq(0.01, 5, length.out = 10000)
+
+# PC‐Prior 1
+dPrior1 <- function(k, λ) {
+  u   <- 2*log(k) - 2*(k - 1)/k
+  num <- (λ/2) * abs(k - 1)
+  den <- k^2 * sqrt(u)
+  ifelse(k>0 & u>0,
+         num/den * exp(-λ * sqrt(u)),
+         0)
+}
+
+# Laplace‐Prior 2
+dPrior2 <- function(k, λ) {
+  Z2 <- 2 - exp(-λ)
+  ifelse(k>0,
+         λ * exp(-λ * abs(k - 1)) / Z2,
+         0)
+}
+
+# build data frames
+df1 <- expand.grid(
+  kappa  = kappa,
+  lambda = lambdas
+)
+df1$density <- dPrior1(df1$kappa, df1$lambda)
+
+df2 <- expand.grid(
+  kappa  = kappa,
+  lambda = lambdas
+)
+df2$density <- dPrior2(df2$kappa, df2$lambda)
+
+
+p <- ggplot(df1, aes(x = kappa, y = density, color = factor(lambda))) +
+  geom_line(size = 1.5) +
+  scale_colour_paletteer_d("nationalparkcolors::Acadia",
+                           name = expression(lambda))+
+  labs(
+    x     = expression(kappa),
+    y     = expression(pi[1](kappa)),
+    # title = "Prior 1 (PC‐prior) for Different " ~ lambda
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 30),
+    axis.title.x = element_text(size = 30),
+    legend.position  = c(0.7, 0.5),
+    legend.text = element_text(size = 30),
+    legend.key.size = unit(3, "lines"),
+    legend.title = element_text(size = 30),        # Increased legend title size
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
+    plot.title = element_text(hjust = 0.5, size = 25)
+  )
+png(filename = file.path(dir.out, "PC_prior_1.pdf"), width = 3000, height = 2000, res=300)
+print(p)
+dev.off()
+
+p <- ggplot(df2, aes(x = kappa, y = density, color = factor(lambda))) +
+  geom_line(size = 1.5) +
+  scale_colour_paletteer_d("nationalparkcolors::Acadia",
+                           name = expression(lambda))+
+  labs(
+    x     = expression(kappa),
+    y     = expression(pi[2](kappa)),
+    # title = "Prior 1 (PC‐prior) for Different " ~ lambda
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 30),
+    axis.title.x = element_text(size = 30),
+    legend.position  = 'none',
+    legend.text = element_text(size = 30),
+    legend.key.size = unit(3, "lines"),
+    legend.title = element_text(size = 30),        # Increased legend title size
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.text.y = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
+    plot.title = element_text(hjust = 0.5, size = 25)
+  )
+png(filename = file.path(dir.out, "PC_prior_2.pdf"), width = 3000, height = 2000, res=300)
+print(p)
+dev.off()
 
 ########################## explorary analysis #############################
 df_ba <- data.frame(x = data.fit[data.fit$year!=2023,'log_ba'])
@@ -69,7 +166,7 @@ p <- ggplot() +
     axis.title.x=element_text(size=30),
     axis.title.y=element_text(size=25)) 
 
-png(filename = file.path(dir.out, "Histgram_burn_area.pdf"), width =4000 , height = 2000, res=300)
+png(filename = file.path(dir.out, "Histgram_burn_area.pdf"), width =3000 , height = 2000, res=300)
 print(p)
 dev.off()
 
@@ -113,7 +210,7 @@ p <- ggplot() +
     axis.title.x=element_text(size=30),
     axis.title.y=element_text(size=25)) 
 
-png(filename = file.path(dir.out, "Histgram_fire_count.pdf"), width =4000 , height = 2000, res=300)
+png(filename = file.path(dir.out, "Histgram_fire_count.pdf"), width =3000 , height = 2000, res=300)
 print(p)
 dev.off()
 
@@ -1543,12 +1640,12 @@ p <- ggplot(df, aes(x = xi)) +
   ) +
   labs(
     x = expression(xi), 
-    y = expression("Density of " * xi)
+    y = expression("Density")
   ) +
   xlim(-0.5, 0.5)+
   theme(
     axis.text.x = element_text(size = 30),
-    axis.title.x = element_blank(),
+    axis.title.x = element_text(size = 30),
     legend.position  = c(0.2, 0.8),
     legend.text = element_text(size = 30),
     legend.key.size = unit(3, "lines"),
@@ -1563,14 +1660,19 @@ p <- ggplot(df, aes(x = xi)) +
     axis.title.y = element_text(size = 30),
     plot.title = element_text(hjust = 0.5, size = 25)
   )
-png(filename = file.path(dir.out, "Posterior_density_xi.pdf"), width = 4000, height = 2000, res=300)
+png(filename = file.path(dir.out, "Posterior_density_xi.pdf"), width = 3000, height = 2000, res=300)
 print(p)
 dev.off()
 
 
-dgamma_prior <- function(x){
-  dens <- dgamma(x,shape=100,rate=100)
+dPrior2 <- function(k, λ) {
+  λ = 10
+  Z2 <- 2 - exp(-λ)
+  ifelse(k>0,
+         λ * exp(-λ * abs(k - 1)) / Z2,
+         0)
 }
+
 df <- data.frame(kappa = kappa_array)
 
 p <- ggplot(df, aes(x = kappa)) +
@@ -1583,7 +1685,7 @@ p <- ggplot(df, aes(x = kappa)) +
   ) +
   # prior density
   stat_function(
-    fun = dgamma_prior, 
+    fun = dPrior2, 
     aes(color = "Prior"),
     size = 2, 
     linetype = 'dotdash',
@@ -1594,13 +1696,13 @@ p <- ggplot(df, aes(x = kappa)) +
     values = c("Posterior" = "#5459AC", "Prior" = "#CA7842")
   ) +
   labs(
-    x = expression(xi), 
-    y = expression("Density of " * kappa)
+    x = expression(kappa), 
+    y = expression("Density")
   ) +
-  xlim(0, 4)+
+  xlim(0, 8)+
   theme(
     axis.text.x = element_text(size = 30),
-    axis.title.x = element_blank(),
+    axis.title.x = element_text(size = 30),
     legend.position  = 'none',
     legend.text =  element_blank(),
     legend.key.size = unit(3, "lines"),
@@ -1616,15 +1718,15 @@ p <- ggplot(df, aes(x = kappa)) +
     plot.title = element_text(hjust = 0.5, size = 25)
   )
 
-png(filename = file.path(dir.out, "Posterior_density_kappa.pdf"), width = 4000, height = 2000, res=300)
+png(filename = file.path(dir.out, "Posterior_density_kappa.pdf"), width = 3000, height = 2000, res=300)
 print(p)
 dev.off()
 
 ######################## Estimated Likelihood ##############################
 x <- seq(0,5,0.01)
 
-kappa <- 2.739
-xi <- 0.305
+kappa <- 4.72
+xi <- 0.418
 
 weibull_shape <- 1.394
 lambda.ba <- 0.95
@@ -1683,7 +1785,7 @@ rextGP <- function(n, xi, sigma, kappa){
   }
   
 }
-sigma <- 0.421
+sigma <- 0.26
 median(rextGP(100000,  xi, sigma, kappa))
 y_egp <- dextGP(x,xi,sigma,kappa)
 plot(x, y_egp, type='l')

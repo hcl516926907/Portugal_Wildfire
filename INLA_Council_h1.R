@@ -248,6 +248,19 @@ data.list=list(Y=Y,
 prec.prior <-  list(prec = list(prior="loggamma",param=c(0.1,0.1)))
 
 
+# Define the PC prior function on log(kappa)
+pcprior_kappa_func = function(theta) {
+  log_const = log(lambda) - log(2 - exp(-lambda))
+  kappa = exp(theta)
+  logdens = log_const - lambda * abs(kappa - 1)
+  lJacobian = theta  # log Jacobian
+  return(logdens + lJacobian)
+}
+
+# Prepare for INLA using inla.rprior.define
+pcprior_kappa_rprior = inla.rprior.define(pcprior_kappa_func, lambda=10)
+
+
  
 formula <- Y ~  0  +
   intercept.cnt +
@@ -260,7 +273,6 @@ formula <- Y ~  0  +
   intercept.z +
   f(grid.idx.z, model='bym2',graph=g.council,group=month.idx.z, control.group = list(model='iid'))  +
   f(year.idx.z, model='iid',hyper = prec.prior)+
-  # f(score.z, model='rw1')+
   f(score.z_cnt, model='rw1', hyper = prec.prior) +  f(score.z_ba, model='rw1', hyper = prec.prior)+
   f(grid.idx.dist.z, model='bym2', graph=g.district,group=time.idx.z, control.group = list(model='iid')) +
 
@@ -297,37 +309,35 @@ formula <- Y ~  0  +
 
 
 # t1 <- Sys.time()
-res <- inla(formula,
-               family = c('nzpoisson','binomial', 'gamma'), data = data.list,  Ntrials=1,
-               control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-               verbose=TRUE,
-               control.compute=list(config = TRUE),
-               control.fixed = list(expand.factor.strategy = 'inla')
-)
-
 # res <- inla(formula,
-#             family = c('nzpoisson','binomial', 'egp'), data = data.list,  Ntrials=1,
-#             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-# 
-#             verbose=TRUE,
-#             control.compute=list(config = TRUE),
-#             control.family = list( list(), list(), list(control.link = list(quantile = 0.5),
-#                                                         hyper = list(
-#                                                           tail = list(
-#                                                           ##initial = xi.intern,
-#                                                           fixed = !TRUE,
-#                                                           prior = "pc.egptail",
-#                                                           param = c(10, -0.5, 0.5)),
-#                                                           shape = list(
-#                                                             ##initial = kappa.intern,
-#                                                             fixed = !TRUE,
-#                                                             prior = "loggamma",
-#                                                             param = c(100, 100)
-#                                                             )
-#                                                           )
-#                                                         )),
-#             control.fixed = list(expand.factor.strategy = 'inla')
+#                family = c('nzpoisson','binomial', 'gamma'), data = data.list,  Ntrials=1,
+#                control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+#                verbose=TRUE,
+#                control.compute=list(config = TRUE),
+#                control.fixed = list(expand.factor.strategy = 'inla')
 # )
+
+res <- inla(formula,
+            family = c('nzpoisson','binomial', 'egp'), data = data.list,  Ntrials=1,
+            control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+
+            verbose=TRUE,
+            control.compute=list(config = TRUE),
+            control.family = list( list(), list(), list(control.link = list(quantile = 0.5),
+                                                        hyper = list(
+                                                          tail = list(
+                                                          ##initial = xi.intern,
+                                                          fixed = !TRUE,
+                                                          prior = "pc.egptail",
+                                                          param = c(10, -0.5, 0.5)),
+                                                          shape = list(
+                                                            fixed = !TRUE,
+                                                            prior = pcprior_kappa_rprior
+                                                            )
+                                                          )
+                                                        )),
+            control.fixed = list(expand.factor.strategy = 'inla')
+)
 # 
 # t2 <- Sys.time()
 # print(t2-t1)
@@ -336,7 +346,7 @@ summary(res)
 
 
 n1 = nrow(data.fit)
-# save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
-save(n1, res, file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
+save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
+# save(n1, res, file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
 # save(n1, res, file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
 # save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1_noxgb.RData'))
