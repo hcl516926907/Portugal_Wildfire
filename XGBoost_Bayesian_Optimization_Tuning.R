@@ -11,6 +11,10 @@ library(rBayesianOptimization)
 library(caret) 
 library(fastDummies)
 library(zoo)
+
+library(lubridate)
+library(pROC)
+
 # bru_safe_sp(force = TRUE)
 
 load(file.path(dir.data, "Data_For_Fitting_Council.RData"))
@@ -435,15 +439,15 @@ cnt.covar.names.h1 <- c(
 
 combined.covar.names.h1 <- unique(c(cnt.covar.names.h1, ba.covar.names.h1))
 
+# time <= 2022-12
+data.fit.train <- df[(df$time.idx <= 144) & (df$year >= 2014),]
+
+data.fit.test <- df[df$year > 2022,]
 
 
 ####################################################################
 # ACF plots
 ####################################################################
-
-data.fit.train <- df[(df$year <= 2022) & (!rowSums(is.na(df[,combined.covar.names.h1])) > 0 ),]
-
-data.fit.test <- df[df$year > 2022,]
 
 acf(data.fit.train$xgb_ba,lag.max=120)
 acf(data.fit.train$xgb_cnt,lag.max=120)
@@ -531,24 +535,163 @@ dev.off()
 
 
 
-data.fit.train.positive <- data.fit.train[data.fit.train$y>0,]
-data.fit.test.positive <- data.fit.test[data.fit.test$y>0,]
-
-
-
-
 ####################################################################
 # Tune hyperparameters of XGBoost using Bayesian optimization
 ####################################################################
 
+# make_purged_year_folds <- function(data, horizon_months = 1, embargo_months = 0,
+#                                    warmup_years = 2, min_train_rows = 1L) {
+#   dvec   <- as_date(paste(data[['year']],data[['month']],01, sep='-'))
+#   yrs    <- sort(unique(year(dvec)))
+#   folds  <- list()
+#   
+#   # label end = date + horizon months
+#   label_end <- dvec %m+% months(horizon_months)
+#   
+#   for (y in yrs) {
+#     # validation block = whole calendar year y
+#     v_mask   <- year(dvec) == y
+#     if (!any(v_mask)) next
+#     v_start  <- ymd(paste0(y, "-01-01"))
+#     
+#     # respect warm-up: need at least 'warmup_years' fully past years
+#     if (y <= min(yrs) + warmup_years - 1) next
+#     
+#     # purge/embargo: remove from training any rows whose label window touches the val start
+#     # i.e., keep rows with label_end < (v_start - embargo)
+#     cutoff   <- v_start %m-% months(embargo_months)
+#     t_mask   <- (label_end < cutoff)
+#     
+#     tr_idx   <- which(t_mask)
+#     va_idx   <- which(v_mask)
+#     
+#     if (length(tr_idx) >= min_train_rows && length(va_idx) > 0) {
+#       folds[[length(folds) + 1]] <- list(train_idx = tr_idx,
+#                                          val_idx   = va_idx,
+#                                          val_year  = y)
+#     }
+#   }
+#   return(folds)
+# }
 
-XGBoostAR <- function(data, covar.names, target.name, eta,max_depth, objective, evaluation_metric,nfold=10){
+make_year_folds <- function(data, horizon_months = 1, 
+                                   warmup_years = 2, min_train_rows = 1L) {
+  dvec   <- as_date(paste(data[['year']],data[['month']],01, sep='-'))
+  yrs    <- sort(unique(year(dvec)))
+  folds  <- list()
+  
+  # label end = date + horizon months
+  label_end <- dvec %m+% months(horizon_months)
+  
+  for (y in yrs) {
+    # validation block = whole calendar year y
+    v_mask   <- year(dvec) == y
+    if (!any(v_mask)) next
+    v_start  <- ymd(paste0(y, "-01-01"))
+    
+    # respect warm-up: need at least 'warmup_years' fully past years
+    if (y <= min(yrs) + warmup_years - 1) next
+    
+    # purge/embargo: remove from training any rows whose label window touches the val start
+    # i.e., keep rows with label_end < (v_start - embargo)
+    cutoff   <- v_start
+    t_mask   <- (label_end <= cutoff)
+    
+    tr_idx   <- which(t_mask)
+    va_idx   <- which(v_mask)
+    
+    if (length(tr_idx) >= min_train_rows && length(va_idx) > 0) {
+      folds[[length(folds) + 1]] <- list(train_idx = tr_idx,
+                                         val_idx   = va_idx,
+                                         val_year  = y)
+    }
+  }
+  return(folds)
+}
+
+
+
+val_metric <- function(y_true,
+                       y_pred, 
+                       metric = c("auc", "rmse", "poisson-nloglik", "tweedie-nloglik@1.5"),
+                       positive_label = 1,
+                       eps = 1e-12) {
+  na.ind = is.na(y_pred) # due to warming up
+  y_true = y_true[!na.ind]
+  y_pred = y_pred[!na.ind] 
+  metric <- if (length(metric) == 1) metric else match.arg(metric)
+  
+  if (metric == "auc") {
+    # y_true should be 0/1
+    return(as.numeric(pROC::auc(y_true == positive_label, y_pred)))
+  }
+  
+  if (metric == "rmse") {
+    return(sqrt(mean((y_true - y_pred)^2)))
+  }
+  
+  if (metric == "poisson-nloglik") {
+    # Poisson negative log-likelihood (up to an additive constant):
+    # mean( mu - y * log(mu) ), where mu > 0
+    mu <- pmax(y_pred, eps)
+    if (any(y_true < 0, na.rm = TRUE)) {
+      stop("poisson-nloglik requires non-negative targets.")
+    }
+    return(mean(mu - y_true * log(mu)))
+  }
+  
+  if (grepl("^tweedie-nloglik@", metric)) {
+    # Tweedie negative log-likelihood (power rho in (1,2) usually):
+    # mean( mu^(2-rho)/(2-rho) - y * mu^(1-rho)/(1-rho) ), ignoring constants in y and phi
+    rho_str <- sub("^tweedie-nloglik@", "", metric)
+    rho <- as.numeric(rho_str)
+    if (!is.finite(rho)) stop("Could not parse Tweedie power from metric string.")
+    if (rho <= 1 || rho >= 2) warning("rho is typically in (1,2) for compound Poisson-gamma Tweedie.")
+    
+    mu <- pmax(y_pred, eps)
+    if (any(y_true < 0, na.rm = TRUE)) {
+      stop("tweedie-nloglik requires non-negative targets.")
+    }
+    term <- (mu^(2 - rho)) / (2 - rho) - (y_true * mu^(1 - rho)) / (1 - rho)
+    # Guard against numerical issues
+    term[!is.finite(term)] <- NA_real_
+    return(mean(term, na.rm = TRUE))
+  }
+  
+  stop(sprintf("Unknown metric: %s", metric))
+}
+
+
+
+XGBoostAR <- function(data,
+                      covar.names, 
+                      target.name, 
+                      eta,
+                      max_depth, 
+                      objective, 
+                      evaluation_metric,
+                      horizon_months = 1,
+                      embargo_months = 0,
+                      warmup_years = 2,
+                      init_points = 10,
+                      n_iter = 20,
+                      early_stopping_rounds = 50,
+                      max_rounds = 1000){
   
   set.seed(42)
   # Prepare the dataset: separate predictors and response
+  
+  folds <- make_year_folds(
+    data             = data,
+    horizon_months   = horizon_months,
+    warmup_years     = warmup_years
+  )
+  
+  if (length(folds) == 0) stop("No valid purged folds: increase warmup_years or check date column.")
+  
   label <- data[,target.name]
   features <- data[, covar.names]
-  dtrain <- xgb.DMatrix(data = as.matrix(features), label = label)
+  maximize_flag <- identical(evaluation_metric, "auc")
   # Define the objective function for Bayesian optimization
   # This function performs 6-fold cross-validation with early stopping and returns the negative RMSE.
   # (BayesianOptimization maximizes the objective, so we use -RMSE.)
@@ -562,29 +705,33 @@ XGBoostAR <- function(data, covar.names, target.name, eta,max_depth, objective, 
       colsample_bytree = colsample_bytree,
       objective = objective,  # For a continuous regression target.
       eval_metric = evaluation_metric,
-      scale_pos_weight = if (evaluation_metric == 'auc') 8.34 else 1,
+      # scale_pos_weight = if (evaluation_metric == 'auc') 8.34 else 1,
       min_child_weight = min_child_weight,
       gamma = gamma
     )
     
-    cv_res <- xgb.cv(
-      params = params,
-      data = dtrain,
-      nrounds = 1000,
-      nfold = nfold,
-      early_stopping_rounds = 5,
-      verbose = 0,
-      maximize = if (evaluation_metric == 'auc') TRUE else FALSE
-    )
-    if (evaluation_metric == 'auc'){
-      best_metric <- max(cv_res$evaluation_log[,4])
-      # Return a list with Score (to be maximized) and the best number of rounds.
-      return (list(Score = best_metric, Pred = 0))
-    }else{
-      best_metric <- min(cv_res$evaluation_log[,4])
-      # Return a list with Score (to be maximized) and the best number of rounds.
-      return (list(Score = -best_metric, Pred = 0))
+    oof <- rep(NA_real_, nrow(data))
+    
+    for (i in seq_along(folds)) {
+      tr <- folds[[i]]$train_idx
+      va <- folds[[i]]$val_idx
+      
+      dtr <- xgb.DMatrix(data = as.matrix(features[tr, ]), label = label[tr])
+      dva <- xgb.DMatrix(data = as.matrix(features[va, ]), label = label[va])
+      
+      mdl <- xgb.train(params = params,
+                       data   = dtr,
+                       nrounds = max_rounds,
+                       watchlist = list(train = dtr, eval = dva),
+                       early_stopping_rounds = early_stopping_rounds, verbose = 0)
+      
+      oof[va] <- predict(mdl, dva, ntreelimit = mdl$best_ntreelimit)
     }
+    
+    best_metric <- val_metric(label, oof, evaluation_metric)
+    
+    
+    list(Score = if (maximize_flag) best_metric else -best_metric, Pred = 0)
   }
   
   
@@ -594,12 +741,12 @@ XGBoostAR <- function(data, covar.names, target.name, eta,max_depth, objective, 
     bounds = list(
       max_depth = max_depth,           # Tune over reasonable integer values (converted inside the function).
       subsample = c(0.6, 1),        # Proportion of observations to sample.
-      colsample_bytree = c(0.4, 1),   # Proportion of features to sample.
-      min_child_weight = c(2,30),
-      gamma = c(1,10)
+      colsample_bytree = c(0.6, 1),   # Proportion of features to sample.
+      min_child_weight = c(1,20),
+      gamma = c(0,5)
     ),
-    init_points = 10,  # Initial random explorations.
-    n_iter = 30,      # Number of iterations for Bayesian optimization.
+    init_points = init_points,  # Initial random explorations.
+    n_iter = n_iter,      # Number of iterations for Bayesian optimization.
     acq = "ucb",      # Acquisition function (upper confidence bound).
     kappa = 2.576,
     eps = 0.0,
@@ -618,170 +765,152 @@ XGBoostAR <- function(data, covar.names, target.name, eta,max_depth, objective, 
     colsample_bytree = best_params['colsample_bytree'],
     objective = objective,
     eval_metric = evaluation_metric,
-    scale_pos_weight = if (evaluation_metric == 'auc') 8.34 else 1,
+    # scale_pos_weight = if (evaluation_metric == 'auc') 8.34 else 1,
     min_child_weight = best_params['min_child_weight'],
     gamma = best_params['gamma']
   )
-  
-  
-  cv_final <- xgb.cv(
-    params = final_params,
-    data = dtrain,
-    nrounds = 1000,
-    nfold = nfold,
-    early_stopping_rounds = 3,
-    verbose = 0,
-    maximize = if (evaluation_metric == 'auc') TRUE else FALSE
-  )
-  
-  best_nrounds <- cv_final$best_iteration
-  cat("Best number of rounds: ", best_nrounds, "\n")
-  
 
-  return(list('best_params'=final_params, 'best_nrounds'=best_nrounds))
+  return( list(
+                best_params   = final_params,
+                folds_info    = folds,         # returned for transparency/debugging
+                horizon_months = horizon_months,
+                embargo_months = embargo_months,
+                warmup_years   = warmup_years
+  ))
 }
 
-xgb_predict_cv <- function(data_train,
-                           data_predict,
+xgb_super_learner_predict  <- function(data_train,
+                                       data_test,
                            tuning_res,
                            target.name,
                            covar.names,
-                           k = 10) {
+                           max_rounds=1000,
+                           early_stopping_rounds=50) {
   set.seed(42)
-  final_params <- tuning_res$best_params
-  nrounds      <- tuning_res$best_nround
+  horizon_months  <- tuning_res$horizon_months
+  embargo_months  <- tuning_res$embargo_months
+  warmup_years    <- tuning_res$warmup_years
   
-  # 1) create orig_idx so we can track rows back to data_predict
-  data_predict$orig_idx <-as.integer(rownames(data_predict))
-  # assume data_train was a straight subset of data_predict, so its rownames
-  # point back into data_predict.  If your data_train has custom rownames,
-  # you’ll need to adjust this accordingly.
-  data_train$orig_idx   <- as.integer(rownames(data_train))
-  
-  # 2) make space to collect each fold's preds
-  preds_mat <- matrix(NA,
-                      nrow = nrow(data_predict),
-                      ncol = k)
-  set.seed(42)
-  # 3)  create folds on data_train
-  folds <- createFolds(data_train[[target.name]],
-                       k     = k,
-                       list  = TRUE,
-                       returnTrain = FALSE)
-  
-  for (i in seq_len(k)) {
-    # indices *within* data_train of this fold’s hold‐out
-    val_idx_train <- folds[[i]]
-    
-    # the 5/6 training slice of data_train
-    train_data <- data_train[-val_idx_train, ]
-    
-    # prepare xgb matrices
-    dtrain <- xgb.DMatrix(
-      data  = as.matrix(train_data[, covar.names]),
-      label = train_data[[target.name]]
-    )
-    
-    # train
-    model <- xgb.train(
-      params  = final_params,
-      data    = dtrain,
-      nrounds = nrounds,
-      verbose = 0
-    )
-    
-    # 4) predict on *all* data_predict rows not in this fold’s training
-    train_ids  <- train_data$orig_idx
-    pred_idx   <- which(!data_predict$orig_idx %in% train_ids)
-    
-    dtest <- xgb.DMatrix(
-      data = as.matrix(data_predict[pred_idx, covar.names])
-    )
-    preds <- predict(model, newdata = dtest)
-    
-    preds_mat[pred_idx, i] <- preds
-  }
-  
-  # 5) average across folds (na.rm=TRUE so each row uses only the folds
-  #    that actually predicted it)
-  data_predict$score <- rowMeans(preds_mat, na.rm = TRUE)
+  folds <- make_year_folds(
+    data            = data_train,
+    horizon_months  = horizon_months,
+    warmup_years    = warmup_years
+  )
 
   
-  return(data_predict$score)
+  params <- tuning_res$best_params
+  
+  if (length(folds) == 0) stop("No valid purged folds on training set.")
+  
+  y_tr   <- data_train[[target.name]]
+  X_tr   <- as.matrix(data_train[, covar.names, drop = FALSE])
+  X_te   <- as.matrix(data_test[,  covar.names, drop = FALSE])
+  
+  oof <- rep(NA_real_, nrow(data_train))
+  best_iter <- integer(length(folds))
+  
+  for (i in seq_along(folds)) {
+    tr <- folds[[i]]$train_idx
+    va <- folds[[i]]$val_idx
+    
+    dtr <- xgb.DMatrix(data = as.matrix(X_tr[tr, ]), label = y_tr[tr])
+    dva <- xgb.DMatrix(data = as.matrix(X_tr[va, ]), label = y_tr[va])
+    
+    mdl <- xgb.train(params = params,
+                     data   = dtr,
+                     nrounds = max_rounds,
+                     watchlist = list(train = dtr, eval = dva),
+                     early_stopping_rounds = early_stopping_rounds, verbose = 0)
+    
+    oof[va] <- predict(mdl, dva, nrounds = mdl$best_iteration)
+    best_iter[i] <- mdl$best_iteration
+  }
+  
+  dtr_full <- xgb.DMatrix(X_tr, label = y_tr)
+  mdl_full <- xgb.train(
+    params  = params,
+    data    = dtr_full,
+    nrounds = as.integer(median(best_iter, na.rm = TRUE)),
+    verbose = 0
+  )
+  
+  dte <- xgb.DMatrix(X_te)
+  test_pred <- predict(mdl_full, newdata = dte)
+  
+  return(list(
+    oof_pred   = oof,        # for meta-learner training
+    test_pred  = test_pred,  # final forecast on test set
+    final_model = mdl_full
+  ))
 }
 
 
 
 ######################Fit the model############################
 
-res_ba_h1 = XGBoostAR(as.data.frame(data.fit.train),ba.covar.names.h1 , 
-                     'xgb_ba_h1', eta=0.1, max_depth=c(2L,3L), objective='reg:tweedie', evaluation_metric='tweedie-nloglik@1.5')
+res_ba_h1 = XGBoostAR(as.data.frame(data.fit.train),
+                      ba.covar.names.h1 , 
+                      'xgb_ba_h1',
+                      eta=0.1, 
+                      max_depth=c(2L,5L),
+                      objective='reg:tweedie', 
+                      evaluation_metric='tweedie-nloglik@1.5',
+                      init_points = 10,
+                      n_iter = 30)
 
 save(res_ba_h1, file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_BA.RData'))
 
 
-res_cnt_h1 =  XGBoostAR(as.data.frame(data.fit.train), cnt.covar.names.h1 , 
-                        'xgb_cnt_h1', eta=0.1, max_depth=c(2L,3L), objective="count:poisson", evaluation_metric="poisson-nloglik")
+res_cnt_h1 =  XGBoostAR(as.data.frame(data.fit.train), 
+                        cnt.covar.names.h1 , 
+                        'xgb_cnt_h1',
+                        eta=0.1, 
+                        max_depth=c(2L,5L), 
+                        objective="count:poisson",
+                        evaluation_metric="poisson-nloglik",
+                        init_points = 10,
+                        n_iter = 30)
 
 save(res_cnt_h1, file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_CNT.RData'))
 
-# 
-# load(file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_BA.RData'))
-# load(file=file.path(dir.out,'AutoRegressive_XGBoost_Hyperparameters_CNT.RData'))
-
-data.fit.train$pred_cnt_h1 <- xgb_predict_cv(data.fit.train, data.fit.train, res_cnt_h1, 'xgb_cnt_h1',cnt.covar.names.h1 )
-data.fit.train$pred_ba_h1 <-xgb_predict_cv(data.fit.train, data.fit.train, res_ba_h1, 'xgb_ba_h1',ba.covar.names.h1 )
 
 
+sl_preds_ba_h1 <- xgb_super_learner_predict(
+  data_train  = data.fit.train,     # past-only
+  data_test   = data.fit.test,      # future period
+  tuning_res  = res_ba_h1,
+  covar.names = ba.covar.names.h1,
+  target.name = "xgb_ba_h1"
+)
+
+sl_preds_cnt_h1 <- xgb_super_learner_predict(
+  data_train  = data.fit.train,     # past-only
+  data_test   = data.fit.test,      # future period
+  tuning_res  = res_cnt_h1,
+  covar.names = cnt.covar.names.h1,
+  target.name = "xgb_cnt_h1"
+)
 
 
-sqrt(mean((data.fit.train[data.fit.train$y>0,'pred_ba_h1']-data.fit.train[data.fit.train$y>0,'xgb_ba_h1'] )^2))
+data.fit.train['pred_ba_h1'] = sl_preds_ba_h1$oof_pred
+data.fit.test['pred_ba_h1'] = sl_preds_ba_h1$test_pred
+
+data.fit.train['pred_cnt_h1'] = sl_preds_cnt_h1$oof_pred
+data.fit.test['pred_cnt_h1'] = sl_preds_cnt_h1$test_pred
 
 
-acf(data.fit.train$xgb_ba)
-# Check the first few predictions
-head(data.fit.train$pred_ba_h1)
+
 
 data <- data.fit.train
 council = 'Alcanena'
 plot(1:(dim(data[data$NAME_2==council,])[1]), data[data$NAME_2==council, ]$xgb_ba_h1,type='l')
 points(data[data$NAME_2==council, ]$pred_ba_h1,col='red')
 
+plot(1:(dim(data[data$NAME_2==council,])[1]), data[data$NAME_2==council, ]$xgb_cnt_h1,type='l')
+points(data[data$NAME_2==council, ]$pred_cnt_h1,col='red')
 
 
 
-# Train the final XGBoost model using the tuned hyperparameters and best number of rounds.
-
-final_model <- function(data, covar.names, target.name, tuning_res){
-  set.seed(42)
-  label <- data[,target.name]
-  features <- data[, covar.names]
-  dtrain <- xgb.DMatrix(data = as.matrix(features), label = label)
-  
-  model <- xgb.train(
-    params = tuning_res$best_params,
-    data = dtrain,
-    nrounds = tuning_res$best_nrounds ,
-    verbose = 0  )
-  return(model)
-}
-
-
-
-model_cnt_h1 <- final_model(as.data.frame(data.fit.train), cnt.covar.names.h1, 'xgb_cnt_h1',res_cnt_h1)
-model_ba_h1 <- final_model(as.data.frame(data.fit.train), ba.covar.names.h1, 'xgb_ba_h1', res_ba_h1)
-
-
-
-
-print(xgb.importance(model = model_cnt_h1))
-
-print(xgb.importance(model = model_ba_h1))
-
-
-
-data.fit.test$pred_ba_h1 <- predict(model_ba_h1, newdata = as.matrix(data.fit.test[,ba.covar.names.h1]))
-data.fit.test$pred_cnt_h1 <- predict(model_cnt_h1, newdata = as.matrix(data.fit.test[,cnt.covar.names.h1]))
 
 
 
@@ -808,11 +937,11 @@ data.fit <- data.fit %>%
 
 
 
-data.fit[data.fit$NAME_2==council,c('time.idx','NAME_2','xgb_ba','xgb_ba_h1','pred_ba_h1','score_ba_h1')]
-data.fit[data.fit$NAME_2=='Águeda',c('time.idx','NAME_2','xgb_cnt','xgb_cnt_h1','pred_cnt_h1','score_cnt_h1')]
+data.fit[data.fit$NAME_2==council,c('time.idx','NAME_2','xgb_ba','xgb_ba_h1','pred_ba_h1','score_ba_h1','year','month')]
+data.fit[data.fit$NAME_2=='Águeda',c('time.idx','NAME_2','xgb_cnt','xgb_cnt_h1','pred_cnt_h1','score_cnt_h1','year','month')]
 
 first_month = min(data.fit$time.idx)
-data.fit <- data.fit[data.fit$time.idx!= first_month,]
+data.fit <- data.fit[!is.na(data.fit$score_ba_h1),]
 
 
 mean((data.fit[data.fit$year<=2022,'score_cnt_h1']-data.fit[data.fit$year<=2022,'xgb_cnt'])^2)

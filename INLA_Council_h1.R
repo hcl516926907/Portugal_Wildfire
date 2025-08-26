@@ -153,10 +153,6 @@ month.idx.cnt <-  c(data.fit$month, nothing, nothing)
 month.idx.z <-  c(nothing, data.fit$month, nothing)
 month.idx.ba <-  c(nothing, nothing, data.fit$month)
 
-year.idx.cnt <-  c(data.fit$year, nothing, nothing)
-year.idx.z <-  c(nothing, data.fit$year, nothing)
-year.idx.ba <-  c(nothing, nothing, data.fit$year)
-
 intercept.cnt <- c(rep(1,n1),nothing, nothing)
 intercept.z <- c(nothing, rep(1,n1), nothing)
 intercept.ba <- c(nothing, nothing, rep(1,n1))
@@ -309,35 +305,35 @@ formula <- Y ~  0  +
 
 
 # t1 <- Sys.time()
-# res <- inla(formula,
-#                family = c('nzpoisson','binomial', 'gamma'), data = data.list,  Ntrials=1,
-#                control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-#                verbose=TRUE,
-#                control.compute=list(config = TRUE),
-#                control.fixed = list(expand.factor.strategy = 'inla')
-# )
-
 res <- inla(formula,
-            family = c('nzpoisson','binomial', 'egp'), data = data.list,  Ntrials=1,
-            control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
-
-            verbose=TRUE,
-            control.compute=list(config = TRUE),
-            control.family = list( list(), list(), list(control.link = list(quantile = 0.5),
-                                                        hyper = list(
-                                                          tail = list(
-                                                          ##initial = xi.intern,
-                                                          fixed = !TRUE,
-                                                          prior = "pc.egptail",
-                                                          param = c(10, -0.5, 0.5)),
-                                                          shape = list(
-                                                            fixed = !TRUE,
-                                                            prior = pcprior_kappa_rprior
-                                                            )
-                                                          )
-                                                        )),
-            control.fixed = list(expand.factor.strategy = 'inla')
+               family = c('nzpoisson','binomial', 'weibull'), data = data.list,  Ntrials=1,
+               control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+               verbose=TRUE,
+               control.compute=list(config = TRUE),
+               control.fixed = list(expand.factor.strategy = 'inla')
 )
+
+# res <- inla(formula,
+#             family = c('nzpoisson','binomial', 'egp'), data = data.list,  Ntrials=1,
+#             control.predictor = list(compute = TRUE, link=c(rep(1,n1),rep(2,n1),rep(3,n1))),
+# 
+#             verbose=TRUE,
+#             control.compute=list(config = TRUE),
+#             control.family = list( list(), list(), list(control.link = list(quantile = 0.5),
+#                                                         hyper = list(
+#                                                           tail = list(
+#                                                           ##initial = xi.intern,
+#                                                           fixed = !TRUE,
+#                                                           prior = "pc.egptail",
+#                                                           param = c(10, -0.5, 0.5)),
+#                                                           shape = list(
+#                                                             fixed = !TRUE,
+#                                                             prior = pcprior_kappa_rprior
+#                                                             )
+#                                                           )
+#                                                         )),
+#             control.fixed = list(expand.factor.strategy = 'inla')
+# )
 # 
 # t2 <- Sys.time()
 # print(t2-t1)
@@ -346,7 +342,7 @@ summary(res)
 
 
 n1 = nrow(data.fit)
-save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
+# save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
 # save(n1, res, file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
-# save(n1, res, file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
+save(n1, res, file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
 # save(n1, res, file=file.path(dir.out, 'Model_egp_bym2_h1_noxgb.RData'))

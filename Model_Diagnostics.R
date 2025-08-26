@@ -857,25 +857,123 @@ rename_var <- function(x){
                'dist_ba_lag1' = 'dist_ba_lag_2',
                'ba_lag0' = 'conc_ba_lag_1',
                'month_cos' = 'month_cos',
-               'dist_hist_ba_h1_1m' = 'dist_ba_hist_1'
+               'dist_hist_ba_h1_1m' = 'dist_ba_hist_1',
                
+               'dist_cnt_lag5'= 'dist_fc_lag_5',
+               'dist_hist_cnt_h1_5m' = 'dist_fc_hist_5' ,
+               'cnt_ma_3' = 'conc_fc_ma_3',
+               'dist_hist_cnt_h1_3m' = 'dist_fc_hist_3',
+               'dist_hist_ba_h1_3m' = 'dist_ba_hist_3',
+               'dist_hist_ba_h1_5m' = 'dist_ba_hist_5'
                )
   return(unname(mapping[x]))
 }
 
-final_model <- function(data, covar.names, target.name, tuning_res){
+library(lubridate)
+make_year_folds <- function(data, horizon_months = 1, 
+                            warmup_years = 2, min_train_rows = 1L) {
+  dvec   <- as_date(paste(data[['year']],data[['month']],01, sep='-'))
+  yrs    <- sort(unique(year(dvec)))
+  folds  <- list()
   
-  label <- data[,target.name]
-  features <- data[, covar.names]
-  dtrain <- xgb.DMatrix(data = as.matrix(features), label = label)
+  # label end = date + horizon months
+  label_end <- dvec %m+% months(horizon_months)
   
-  model <- xgb.train(
-    params = tuning_res$best_params,
-    data = dtrain,
-    nrounds = tuning_res$best_nrounds ,
-    verbose = 0  )
-  return(model)
+  for (y in yrs) {
+    # validation block = whole calendar year y
+    v_mask   <- year(dvec) == y
+    if (!any(v_mask)) next
+    v_start  <- ymd(paste0(y, "-01-01"))
+    
+    # respect warm-up: need at least 'warmup_years' fully past years
+    if (y <= min(yrs) + warmup_years - 1) next
+    
+    # purge/embargo: remove from training any rows whose label window touches the val start
+    # i.e., keep rows with label_end < (v_start - embargo)
+    cutoff   <- v_start
+    t_mask   <- (label_end <= cutoff)
+    
+    tr_idx   <- which(t_mask)
+    va_idx   <- which(v_mask)
+    
+    if (length(tr_idx) >= min_train_rows && length(va_idx) > 0) {
+      folds[[length(folds) + 1]] <- list(train_idx = tr_idx,
+                                         val_idx   = va_idx,
+                                         val_year  = y)
+    }
+  }
+  return(folds)
 }
+
+final_model  <- function(data_train,
+                         tuning_res,
+                         target.name,
+                         covar.names,
+                         max_rounds=1000,
+                         early_stopping_rounds=50) {
+  set.seed(42)
+  horizon_months  <- tuning_res$horizon_months
+  embargo_months  <- tuning_res$embargo_months
+  warmup_years    <- tuning_res$warmup_years
+  
+  folds <- make_year_folds(
+    data            = data_train,
+    horizon_months  = horizon_months,
+    warmup_years    = warmup_years
+  )
+  
+  
+  params <- tuning_res$best_params
+  
+  if (length(folds) == 0) stop("No valid purged folds on training set.")
+  
+  y_tr   <- data_train[[target.name]]
+  X_tr   <- as.matrix(data_train[, covar.names, drop = FALSE])
+  
+  oof <- rep(NA_real_, nrow(data_train))
+  best_iter <- integer(length(folds))
+  
+  for (i in seq_along(folds)) {
+    tr <- folds[[i]]$train_idx
+    va <- folds[[i]]$val_idx
+    
+    dtr <- xgb.DMatrix(data = as.matrix(X_tr[tr, ]), label = y_tr[tr])
+    dva <- xgb.DMatrix(data = as.matrix(X_tr[va, ]), label = y_tr[va])
+    
+    mdl <- xgb.train(params = params,
+                     data   = dtr,
+                     nrounds = max_rounds,
+                     watchlist = list(train = dtr, eval = dva),
+                     early_stopping_rounds = early_stopping_rounds, verbose = 0)
+    
+    oof[va] <- predict(mdl, dva, nrounds = mdl$best_iteration)
+    best_iter[i] <- mdl$best_iteration
+  }
+  
+  dtr_full <- xgb.DMatrix(X_tr, label = y_tr)
+  mdl_full <- xgb.train(
+    params  = params,
+    data    = dtr_full,
+    nrounds = as.integer(median(best_iter, na.rm = TRUE)),
+    verbose = 0
+  )
+  
+  return(mdl_full)
+}
+
+# final_model <- function(data, covar.names, target.name, tuning_res){
+#   
+#   label <- data[,target.name]
+#   features <- data[, covar.names]
+#   dtrain <- xgb.DMatrix(data = as.matrix(features), label = label)
+#   
+#   model <- xgb.train(
+#     params = tuning_res$best_params,
+#     data = dtrain,
+#     nrounds = tuning_res$best_nrounds ,
+#     verbose = 0  )
+#   return(model)
+# }
 w = 9
 ba.covar.names.h1 <- c( paste('ba_lag',0:(w-1),sep=''),
                         paste('dist_ba_lag',0:(w-1),sep=''),
@@ -909,8 +1007,8 @@ cnt.covar.names.h1 <- c( paste('cnt_lag',0:(w-1),sep=''),
 data.fit.train <- data.fit[data.fit$year<2023,]
 
 set.seed(123)
-model_cnt_h1 <- final_model(as.data.frame(data.fit.train), cnt.covar.names.h1, 'xgb_cnt_h1',res_cnt_h1)
-model_ba_h1 <- final_model(as.data.frame(data.fit.train), ba.covar.names.h1, 'xgb_ba_h1', res_ba_h1)
+model_cnt_h1 <- final_model(as.data.frame(data.fit.train), res_cnt_h1, 'xgb_cnt_h1', cnt.covar.names.h1)
+model_ba_h1 <- final_model(as.data.frame(data.fit.train), res_ba_h1, 'xgb_ba_h1', ba.covar.names.h1)
 
 X_train_cnt = data.fit.train[,cnt.covar.names.h1]
 shap_values_cnt <- shap.values(xgb_model = model_cnt_h1, X_train = xgb.DMatrix(as.matrix(X_train_cnt)) )
@@ -921,7 +1019,7 @@ levels(shap_long_cnt$variable)
 
 # levels(shap_long_cnt$variable) <- rename_var(levels(shap_long_cnt$variable))
 
-top20_cnt <- shap_long_cnt[shap_long_cnt$variable %in% levels(shap_long_cnt$variable)[1:10],] %>% droplevels()
+top10_cnt <- shap_long_cnt[shap_long_cnt$variable %in% levels(shap_long_cnt$variable)[1:10],] %>% droplevels()
 
 
 my_shap_plot_summary <- function(data_long, x_bound = NULL, dilute = FALSE, scientific = FALSE, 
@@ -985,8 +1083,8 @@ my_shap_plot_summary <- function(data_long, x_bound = NULL, dilute = FALSE, scie
   
 }
 
-levels(top20_cnt$variable) = rename_var(levels(top20_cnt$variable))
-p <- my_shap_plot_summary(top20_cnt, x_bound  = 2, dilute = 20,
+levels(top10_cnt$variable) = rename_var(levels(top10_cnt$variable))
+p <- my_shap_plot_summary(top10_cnt, x_bound  = 1.8, dilute = 20,
                        min_color_bound = '#3399ff',
                        max_color_bound  = "#ff5050") +
   labs(y = "SHAP Value for Fire Count XGBoost")
@@ -1005,9 +1103,9 @@ shap_long_ba <- shap.prep(shap_contrib = shap_values_ba$shap_score, X_train = as
 levels(shap_long_ba$variable)
 
 
-top20_ba <- shap_long_ba[shap_long_ba$variable %in% levels(shap_long_ba$variable)[1:10],] %>% droplevels()
-levels(top20_ba$variable) = rename_var(levels(top20_ba$variable))
-p <- my_shap_plot_summary(top20_ba, x_bound  = 5, dilute = 20,
+top10_ba <- shap_long_ba[shap_long_ba$variable %in% levels(shap_long_ba$variable)[1:10],] %>% droplevels()
+levels(top10_ba$variable) = rename_var(levels(top10_ba$variable))
+p <- my_shap_plot_summary(top10_ba, x_bound  = 2, dilute = 20,
                        min_color_bound = '#3399ff',
                        max_color_bound  = "#ff5050") + 
   labs(y = "SHAP Value for Burn Area XGBoost")
@@ -1082,9 +1180,12 @@ score_ba_grp <- rw.group(data.fit[data.fit$y>0,'score_ba_h1'],data.fit$score_ba_
 
 
 
+# test2 = samples[[1]]$latent[idx.intercept.cnt,] + samples[[1]]$latent[idx.year.idx.cnt,][data.fit$year-min(data.fit$year)+1] + 
+#   samples[[1]]$latent[idx.grid.idx.cnt,][data.fit$grid.idx] + samples[[1]]$latent[idx.grid.idx.dist.cnt,][data.fit$grid.idx.district] + 
+#   samples[[1]]$latent[idx.score.cnt,][as.integer(as.factor(score_cnt_grp))]
 test2 = samples[[1]]$latent[idx.intercept.cnt,] + samples[[1]]$latent[idx.year.idx.cnt,][data.fit$year-min(data.fit$year)+1] + 
-  samples[[1]]$latent[idx.grid.idx.cnt,][data.fit$grid.idx] + samples[[1]]$latent[idx.grid.idx.dist.cnt,][data.fit$grid.idx.district] + 
-  samples[[1]]$latent[idx.score.cnt,][as.integer(as.factor(score_cnt_grp))]
+    samples[[1]]$latent[idx.grid.idx.cnt,][data.fit$grid.idx + 278] + samples[[1]]$latent[idx.grid.idx.dist.cnt,][data.fit$grid.idx.district] +
+    samples[[1]]$latent[idx.score.cnt,][as.integer(as.factor(score_cnt_grp))]
 
 # check the order of the group effect. The order is idx in group1, idx in group 2, ...
 which(abs(test1 - test2)>0.0001)
@@ -1317,47 +1418,47 @@ print(p)
 dev.off()
 
 
-csc_sd_district <- scale_fill_gradientn(
-  colours = c("#1a9850", '#91cf60', "#d9ef8b","#fee08b" ,'#fc8d59','#d73027'),
-  name = "Mean",
-  limits = c(min(
-    map_plot$sd
-  ), 
-  
-  max(
-    map_plot$sd
-  ))
-)
-
-p <-  ggplot(data = map_plot) +
-  geom_sf(aes(fill = sd)) +
-  csc_sd_district +
-  labs(title = 'Council-Level Effect',
-       fill = "Value") +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
-    axis.title.x = element_blank(),
-    legend.position = "right",
-    legend.text = element_text(size = 10),
-    legend.title = element_text(size = 20),        # Increased legend title size
-    axis.line = element_line(colour = "black"),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    axis.ticks = element_line(color = "black"),
-    panel.border = element_blank(),
-    panel.background = element_blank(),
-    axis.text.y = element_text(size = 15),
-    axis.title.y = element_text(size = 15),
-    plot.title = element_text(hjust = 0.5, size = 25),  # Center and increase title size
-    strip.text = element_text(size = 20)                # Increase facet header size
-  )
-p
+# csc_sd_district <- scale_fill_gradientn(
+#   colours = c("#1a9850", '#91cf60', "#d9ef8b","#fee08b" ,'#fc8d59','#d73027'),
+#   name = "Mean",
+#   limits = c(min(
+#     map_plot$sd
+#   ), 
+#   
+#   max(
+#     map_plot$sd
+#   ))
+# )
+# 
+# p <-  ggplot(data = map_plot) +
+#   geom_sf(aes(fill = sd)) +
+#   csc_sd_district +
+#   labs(title = 'Council-Level Effect',
+#        fill = "Value") +
+#   theme(
+#     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15),
+#     axis.title.x = element_blank(),
+#     legend.position = "right",
+#     legend.text = element_text(size = 10),
+#     legend.title = element_text(size = 20),        # Increased legend title size
+#     axis.line = element_line(colour = "black"),
+#     panel.grid.major = element_blank(),
+#     panel.grid.minor = element_blank(),
+#     axis.ticks = element_line(color = "black"),
+#     panel.border = element_blank(),
+#     panel.background = element_blank(),
+#     axis.text.y = element_text(size = 15),
+#     axis.title.y = element_text(size = 15),
+#     plot.title = element_text(hjust = 0.5, size = 25),  # Center and increase title size
+#     strip.text = element_text(size = 20)                # Increase facet header size
+#   )
+# p
 
 #------------------------Year effect-------------------
 
 library(reshape2)
 
-years <- 2014:2023
+years <- 2016:2023
 rownames(year_effect_cnt_array) <- years
 rownames(year_effect_ba_array)  <- years
 rownames(year_effect_z_array)   <- years
@@ -1725,11 +1826,11 @@ dev.off()
 ######################## Estimated Likelihood ##############################
 x <- seq(0,5,0.01)
 
-kappa <- 4.72
-xi <- 0.418
+kappa <- 4.64
+xi <- 0.445
 
-weibull_shape <- 1.394
-lambda.ba <- 0.95
+weibull_shape <- 1.354
+lambda.ba <- 0.94
 weibull_scale <- lambda.ba^(-1/weibull_shape)
 
 median(rweibull(100000,shape = weibull_shape, scale = weibull_scale))
@@ -1739,8 +1840,8 @@ plot(x,y_weibull, type='l')
 
 
 
-mu.ba <- 0.97
-pricision_gamma <- 1.868
+mu.ba <- 0.974
+pricision_gamma <- 1.804
 a = pricision_gamma
 b = mu.ba / a
 median(rgamma(100000, shape = a, scale = b))
@@ -1785,7 +1886,7 @@ rextGP <- function(n, xi, sigma, kappa){
   }
   
 }
-sigma <- 0.26
+sigma <- 0.253
 median(rextGP(100000,  xi, sigma, kappa))
 y_egp <- dextGP(x,xi,sigma,kappa)
 plot(x, y_egp, type='l')

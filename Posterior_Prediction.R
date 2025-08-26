@@ -14,8 +14,8 @@ load(file.path(dir.out, 'dataset_perf_evaluate.RData'))
 
 
 # load(file=file.path(dir.out, 'Model_gamma_bym2_h1.RData'))
-load(file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
-# load(file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
+# load(file=file.path(dir.out, 'Model_egp_bym2_h1.RData'))
+load(file=file.path(dir.out, 'Model_weibull_bym2_h1.RData'))
 # load(file=file.path(dir.out, 'Model_egp_bym2_h1_noxgb.RData'))
 
 result <- res
@@ -260,8 +260,8 @@ idx.pred.ba <- (2*n1+1):(3*n1)
 ####################################################################
 
 t1 <- Sys.time()
-pred.sp <- post.pred.egp.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
-# pred.sp <- post.pred.weibull.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
+# pred.sp <- post.pred.egp.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
+pred.sp <- post.pred.weibull.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
 # pred.sp <- post.pred.gamma.hurdle.parallel(samples, idx.pred.pois, idx.pred.z, idx.pred.ba, n.samples=n.samples)
 
 t2 <- Sys.time()
@@ -269,6 +269,6 @@ print(t2-t1)
 
 
 # save(pred.sp, file=file.path(dir.out,'Model_gamma_bym2_pred_h1.RData'))
-save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred_h1.RData'))
-# save(pred.sp, file=file.path(dir.out,'Model_weibull_bym2_pred_h1.RData'))
+# save(samples, pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred_h1.RData'))
+save(pred.sp, file=file.path(dir.out,'Model_weibull_bym2_pred_h1.RData'))
 # save(pred.sp, file=file.path(dir.out,'Model_egp_bym2_pred_h1_noxgb.RData'))
